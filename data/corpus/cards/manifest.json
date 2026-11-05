@@ -1,0 +1,93 @@
+[
+  {
+    "source": "card-insurance.docx",
+    "doc_type": "insurance",
+    "product": null,
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  },
+  {
+    "source": "cardholder-cases.pdf",
+    "doc_type": "cases",
+    "product": null,
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  },
+  {
+    "source": "cards-comparison.csv",
+    "doc_type": "table",
+    "product": null,
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  },
+  {
+    "source": "cards-faq.md",
+    "doc_type": "faq",
+    "product": null,
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  },
+  {
+    "source": "classic-card-sheet.pdf",
+    "doc_type": "product_sheet",
+    "product": "clasica",
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  },
+  {
+    "source": "credit-line-increase.md",
+    "doc_type": "procedure",
+    "product": null,
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  },
+  {
+    "source": "gold-card-sheet.docx",
+    "doc_type": "product_sheet",
+    "product": "oro",
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  },
+  {
+    "source": "internal-notice-anniversary.html",
+    "doc_type": "notice",
+    "product": null,
+    "valid_from": "2025-04-01",
+    "valid_until": null
+  },
+  {
+    "source": "miles-and-points.html",
+    "doc_type": "guide",
+    "product": null,
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  },
+  {
+    "source": "platinum-card-sheet-2023.md",
+    "doc_type": "product_sheet",
+    "product": "platinum",
+    "valid_from": "2023-01-01",
+    "valid_until": "2024-12-31"
+  },
+  {
+    "source": "platinum-card-sheet.html",
+    "doc_type": "product_sheet",
+    "product": "platinum",
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  },
+  {
+    "source": "signature-card-sheet.md",
+    "doc_type": "product_sheet",
+    "product": "signature",
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  },
+  {
+    "source": "tea-and-tcea.md",
+    "doc_type": "guide",
+    "product": null,
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  }
+]

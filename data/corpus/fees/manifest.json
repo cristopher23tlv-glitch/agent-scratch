@@ -1,0 +1,86 @@
+[
+  {
+    "source": "additional-services-fees.docx",
+    "doc_type": "fee_schedule",
+    "product": "servicios",
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  },
+  {
+    "source": "atm-network.html",
+    "doc_type": "channel",
+    "product": null,
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  },
+  {
+    "source": "credit-cards-fees.pdf",
+    "doc_type": "fee_schedule",
+    "product": "tarjeta_credito",
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  },
+  {
+    "source": "fee-refund-policy.docx",
+    "doc_type": "policy",
+    "product": null,
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  },
+  {
+    "source": "fees-faq.md",
+    "doc_type": "faq",
+    "product": null,
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  },
+  {
+    "source": "fees-glossary.md",
+    "doc_type": "glossary",
+    "product": null,
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  },
+  {
+    "source": "internal-notice-parking.md",
+    "doc_type": "notice",
+    "product": null,
+    "valid_from": "2025-02-01",
+    "valid_until": null
+  },
+  {
+    "source": "itf-tax.md",
+    "doc_type": "guide",
+    "product": null,
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  },
+  {
+    "source": "savings-accounts-fees.html",
+    "doc_type": "fee_schedule",
+    "product": "cuenta_ahorro",
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  },
+  {
+    "source": "transfer-fees-2024.csv",
+    "doc_type": "fee_schedule",
+    "product": "transferencias",
+    "valid_from": "2024-01-01",
+    "valid_until": "2024-12-31"
+  },
+  {
+    "source": "transfer-fees.csv",
+    "doc_type": "fee_schedule",
+    "product": "transferencias",
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  },
+  {
+    "source": "undue-charges-cases.pdf",
+    "doc_type": "cases",
+    "product": null,
+    "valid_from": "2025-01-01",
+    "valid_until": null
+  }
+]

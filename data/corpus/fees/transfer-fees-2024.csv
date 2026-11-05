@@ -1,0 +1,4 @@
+tipo_transferencia,canal,moneda,comision,acreditacion
+interbancaria_diferida,"app, web",PEN,S/ 4.50,hasta el siguiente día hábil
+interbancaria_inmediata,"app, web",PEN,S/ 6.50,inmediata
+interbancaria_ventanilla,agencia,PEN,S/ 15.00,hasta el siguiente día hábil

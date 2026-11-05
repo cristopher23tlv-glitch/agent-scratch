@@ -1,0 +1,7 @@
+tipo_transferencia,canal,moneda,comision,acreditacion
+misma_titularidad_banco_demo,"app, web",PEN/USD,S/ 0,inmediata
+terceros_banco_demo,"app, web",PEN/USD,S/ 0,inmediata
+interbancaria_diferida,"app, web",PEN,S/ 3.50,hasta el siguiente día hábil
+interbancaria_inmediata,"app, web",PEN,S/ 5.00,inmediata
+interbancaria_ventanilla,agencia,PEN,S/ 12.00,hasta el siguiente día hábil
+al_exterior,"agencia, web",USD,USD 30 + gastos del banco corresponsal,2 a 5 días hábiles
