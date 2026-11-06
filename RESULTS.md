@@ -5,3 +5,13 @@
 | `¿Cuánta línea disponible tengo?` | data_query | 4737 | 384 | 439 | No puedo ver tu línea disponible desde aquí por seguridad. Para consultarla: 1) Abre la app Banco Demo > Tarjetas > selecciona la tarjeta > ver “Línea disponible”. 2) O ingresa a Banca por Internet > Mis productos > Tarjetas. 3) También figura en tu estado de cuenta o llamando a Atención al Cliente/visitando una sucursal. ¿Quieres quete guíe paso a paso en la app o web? |
 | `Quiero un aumento de línea` | sensitive_action | 6267 | 383 | 636 | Entiendo: quieres un aumento de línea. Este trámite requiere confirmación y verificación antes de ejecutarse, y por seguridad no puedo hacerlo directamente aquí. Para continuar debes solicitarlo por un canal seguro (app/banca online, llamada al centro de atención o en una sucursal). Te pedirán actualizar y presentar documentación (comprobantes de ingresos, antigüedad laboral y autorización para consulta en centrales de riesgo). ¿Cómo prefieres que te indique los pasos: app, llamada o sucursal? |
 | `¿A cuánto está el dólar hoy?` | out_of_scope | 3703 | 385 | 273 | Lo siento, no manejo cotizaciones de moneda. Para el tipo de cambio del dólar hoy consulta la web del Banco Central de Reserva del Perú, tu banco o servicios como Google/Reuters. ¿Deseas ayuda con algo sobre tarjetas de crédito, millas, seguros o línea de crédito? |
+
+-----------
+Session 3
+-----------
+
+
+| Tamaño máximo del chunk (caracteres) | Cantidad de chunks | Qué se gana | Qué se pierde |
+|---:|---:|---|---|
+| 250 | 36 | Precisión: cada chunk habla de una sola cosa. | Contexto: una regla y su excepción pueden quedar en chunks distintos. |
+| 1500 | 29 | Precisión: cada chunk habla de una sola cosa. | Contexto: una regla y su excepción pueden quedar en chunks distintos. |
