@@ -30,7 +30,12 @@ Dominios: `fraud`, `fees`, `cards`, `loans` y `support` (variable `DOMAIN`).
 
 Esta copia está en `main` (el arquetipo de partida). Para saber en qué versión está la tuya: `git describe --tags`.
 
+
+
+
 ## Requisitos
+
+
 
 | Herramienta | Desde |
 |---|---|
