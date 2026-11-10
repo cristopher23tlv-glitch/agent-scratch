@@ -7,7 +7,7 @@
 | `¿A cuánto está el dólar hoy?` | out_of_scope | 3703 | 385 | 273 | Lo siento, no manejo cotizaciones de moneda. Para el tipo de cambio del dólar hoy consulta la web del Banco Central de Reserva del Perú, tu banco o servicios como Google/Reuters. ¿Deseas ayuda con algo sobre tarjetas de crédito, millas, seguros o línea de crédito? |
 
 -----------
-# Session 3
+Session 3
 -----------
 
 
@@ -15,24 +15,3 @@
 |---:|---:|---|---|
 | 250 | 36 | Precisión: cada chunk habla de una sola cosa. | Contexto: una regla y su excepción pueden quedar en chunks distintos. |
 | 1500 | 29 | Precisión: cada chunk habla de una sola cosa. | Contexto: una regla y su excepción pueden quedar en chunks distintos. |
-
-
-Observaciones: 
-
-## Aspectos positivos
-El desarrollo de la session 3, bajo la guía presenta:
-Corpus
- ↓
-Build
- ↓
-chunks.json
- ↓
-Publish
- ↓
-Vector DB
-
-Lo que es una desicion acertada para el laboratorio.
-
-## Oportunidades de mejora
-- Una observación valida es podría ser buscar el Chunking por tokens y no Chunking por caracteres como se propone en el laboratorio
-- Actualización de dependencias, uso de text-embedding-3-large
