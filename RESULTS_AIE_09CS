@@ -1,0 +1,23 @@
+-----------
+Session 3
+-----------
+
+================================================= test session starts =================================================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.7.0
+rootdir: C:\Archivos\IA\labs\S-02\agent-scratch
+configfile: pyproject.toml
+testpaths: tests
+plugins: anyio-4.15.1
+collected 47 items
+
+tests\application\test_chat_service.py .....                                                                     [ 10%]
+tests\application\test_chunker.py .....                                                                          [ 21%]
+tests\application\test_ingest_corpus.py .                                                                        [ 23%]
+tests\domain\test_models.py ......                                                                               [ 36%]
+tests\infrastructure\test_api.py ...............                                                                 [ 68%]
+tests\infrastructure\test_health.py .                                                                            [ 70%]
+tests\infrastructure\test_loaders.py .......                                                                     [ 85%]
+tests\infrastructure\test_qdrant_knowledge_base.py ..                                                            [ 89%]
+tests\infrastructure\test_settings.py .....                                                                      [100%]
+
+================================================= 47 passed in 7.78s ==================================================
