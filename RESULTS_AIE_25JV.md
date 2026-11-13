@@ -1,19 +1,3 @@
-# Results AIE-25JCV
-
-## Week 1: Session 1, 2
-
-| User: Message | Assistant: Intent | latency_ms | prompt_tokens | completion_tokens |
-| :--- | :--- | :--- | :--- | :--- |
-| Hola | greeting | 2456 | 382 | 112
-| Donde genero un reclamo de mi transferencia | product_question | 2873 | 391 | 128 |
-| me robaron mi celular | sensitive_action  | 2614 | 379 | 121 |
-| holas como estas | greeting | 2102 | 380 | 97 |
-| Bloquea mi tarjeta | sensitive_action | 2689 | 378 | 118 |
-| Quiero ver mis movimientos de ayer | data_query  | 3104 | 388 | 135 |
-| ¿ Cómo puedo solicitar un prestamo ? | product_question | 2941 | 389 | 142 |
-
-## Week 2: Session 3
-
 # Resultados AIE_25JV — Sesión 4
 
 ### Paso 11 — Foundry real, dominio cards
