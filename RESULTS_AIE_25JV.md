@@ -14,14 +14,11 @@
 
 ## Week 2: Session 3
 
+# Resultados AIE_25JV — Sesión 4
 
-## Week 2: Session 4
+### Paso 11 — Foundry real, dominio cards
 
-Se registraron pruebas ejecutando uv run python dev/chat.py, variando KNOWLEDGE_BASE=local junto con SEARCH_TOP_K=4, 3 y 8 (manteniendo fijo todo lo demás entre estas tres corridas, modificando únicamente SEARCH_TOP_K). Adicionalmente se incluyó una corrida con KNOWLEDGE_BASE=azure_search y SEARCH_TOP_K=4. Cada corrida abarca seis turnos sucesivos dentro de una misma sesión, y los tiempos se copiaron directamente de la consola, expresados en milisegundos.
-
-### Local
-
-### vs ai-search : idx-team-07
+Ingesta con Foundry y `entra_id`: 29 chunks de 13 documentos publicados en Azure AI Search (`idx-team-07`).
 
 
 | # | Pregunta | Intención | Fuente citada | ¿Fuente correcta? | Primer texto en | Respuesta completa en | Resultado |
