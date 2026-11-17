@@ -37,4 +37,4 @@ Se repitieron las cinco preguntas del paso 11 con Foundry real y `SEARCH_TOP_K=5
 | ¿Cuál era la TEA de compras de la tarjeta Platinum según su ficha de 2023? | `platinum-card-sheet.html` — ficha vigente | `platinum-card-sheet.html` — ficha vigente; `cards-comparison.csv` | No: ambos respondieron 34.99 % y no recuperaron la ficha 2023 (que indica 39.99 %). AI Search agregó la comparación, pero no resolvió la fecha histórica. | 4235 / 6084 ms |
 | ¿Cuál es el precio del dólar hoy? | Sin fuentes (`out_of_scope`) | Sin fuentes (`out_of_scope`) | No aplica: ambas corridas la clasificaron fuera del dominio. | 4052 / 4692 ms |
 
-**Conclusión:** en estas cinco pruebas el reranker no mejoró las citas ni corrigió la respuesta histórica; las fuentes principales fueron iguales. AI Search tardó más en las cinco consultas en esta corrida. Se mantiene `KNOWLEDGE_BASE=azure_search` en `.env` para la sesión 5.
+**Conclusión:** en estas cinco pruebas el reranker no mejoró las citas ni corrigió la respuesta histórica; las fuentes principales fueron iguales. AI Search tardó más en las cinco consultas en esta corrida.
