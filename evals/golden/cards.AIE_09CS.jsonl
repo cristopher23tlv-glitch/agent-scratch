@@ -1,0 +1,1 @@
+{"id": "cards-50", "type": "answerable", "history": [], "question": "¿Qué tasa adicional tiene la tarjeta clásica en comparación con la Platinum?", "expected_intent": "product_question", "expected_sources": ["cards-faq.md", "cards-comparison.csv"], "forbidden_sources": [], "key_facts": ["20.99 %"]}
