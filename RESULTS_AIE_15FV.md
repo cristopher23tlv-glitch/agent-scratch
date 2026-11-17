@@ -82,3 +82,117 @@ Los 29 son los mismos chunks que la base local, así que el conteo coincide. Al 
   atribuye todo a la nube.
 - `deploy-agent.yaml` actualizado (paso 13.4): el agente desplegado usa `KNOWLEDGE_BASE=azure_search` y exige `DOMAIN`,
   `SEARCH_ENDPOINT` y `SEARCH_INDEX` en las Variables del repo.
+
+# Resultados AIE_15FV — Sesión 5
+
+## Línea base (S5)
+
+Dominio `cards`, índice `idx-team-07` en Azure AI Search (29 chunks, publicados con Foundry), `SEARCH_TOP_K=5`,
+`INGEST_CHUNK_MAX_CHARS=1500`, juez `JUDGE=local` (G-Eval con `gpt-5-mini`). Corrida de los 30 casos base:
+
+```
+Resumen de 30 casos (juez local):
+  recall@5: 1.00   intención: 1.00   fuentes: 0.97   hechos: 0.78
+  apoyo: 5.0/5   relevancia: 5.0/5   cita correcta: 1.0
+  fugas de datos personales: 0   citas de fuentes prohibidas: 1
+  tokens: 29643 de entrada, 13799 de salida
+```
+
+Cada caso tardó unos 25 s (respuesta ~10 s, juez ~7 s); la corrida completa, unos 14 min.
+
+### Casos con NO
+
+| Caso | Tipo | Control en NO | Qué pasó |
+|---|---|---|---|
+| cards-01, 04, 05, 10, 14, 26 | answerable / noise | hechos | El dato está bien en la respuesta, pero escrito distinto del `key_fact` (por ejemplo `36.20%` en vez de `36.20 %`, `4 visitas a salas VIP al año` en vez de `4 visitas al año`). Es un fallo del control de texto, no del agente. |
+| cards-25 | noise | fuentes | Citó `internal-notice-anniversary.html`, el aviso interno prohibido, y respondió sobre el almuerzo de aniversario en vez de decir que no tiene esa información. Es la única cita prohibida. |
+
+Metas del tema 2 sobre esta línea base: recall@k 1.00 (cumple), apoyo 5.0 (cumple), fugas 0 (cumple),
+hechos 0.78 (cumple por poco; la mayoría de los NO son de formato), citas prohibidas 1 (no cumple, meta 0).
+
+## Mi caso del golden set
+
+`cards-AIE15FV` (tipo `expired`): *¿Cuánto cuesta la membresía anual de la Tarjeta Platinum?* Lo elegí porque el golden
+set pregunta por la TEA, el ingreso mínimo y las millas de la Platinum con documento vencido, pero no por la membresía.
+La ficha vigente (`platinum-card-sheet.html`) dice S/ 480 y la de 2023 (`platinum-card-sheet-2023.md`, prohibida) dice
+S/ 420; el dato también está en `cards-comparison.csv`.
+
+Resultado: recall ok, intención ok, fuentes ok, hechos ok, apoyo 5.0, relevancia 5.0, cita 1.0, 0 citas prohibidas.
+El agente respondió con la ficha vigente.
+
+## Paso 10: antes y después
+
+Una variable por corrida, `uv run eval` completo, `JUDGE=local`. La línea base tiene 30 casos; las corridas siguientes,
+31 (suman `cards-AIE15FV`, que pasa todos los controles). Con un caso más que pasa, los promedios se mueven poco por esa
+razón y no por el cambio que se prueba.
+
+| Cambio | recall | intención | fuentes | hechos | apoyo | citas prohibidas | tokens entrada | tokens salida |
+|---|---|---|---|---|---|---|---|---|
+| Línea base (top_k 5, chunk 1500, AI Search) | 1.00 | 1.00 | 0.97 | 0.78 | 5.0 | 1 | 29643 | 13799 |
+| Chunks 800 | sin cambio | sin cambio | sin cambio | sin cambio | sin cambio | sin cambio | sin cambio | sin cambio |
+| `SEARCH_TOP_K=3` | 1.00 | 0.97 | 0.97 | 0.71 | 5.0 | 1 | 25081 | 12497 |
+| `SEARCH_TOP_K=8` | 1.00 | 1.00 | 0.97 | 0.79 | 5.0 | 1 | 38464 | 14380 |
+| Base local, sin reranker (top_k 5) | 0.96 | 0.97 | 0.94 | 0.71 | 5.0 | 1 | 27507 | 14227 |
+
+- **Chunks 800:** no cambia nada, porque el chunk más largo del corpus de cards mide 621 caracteres. Con 800 sigue
+  habiendo 29 chunks, idénticos a los de 1500. No corrí la evaluación completa porque habría repetido la línea base.
+  Para ver un efecto habría que bajar a unos 400 caracteres, y eso no está en la guía.
+- **top_k 3:** gasta 15 % menos tokens de entrada (25081 contra 29643), pero hechos baja de 0.78 a 0.71 y la intención
+  de 1.00 a 0.97. Con tres fragmentos faltan datos en preguntas que mezclan documentos.
+- **top_k 8:** hechos sube apenas a 0.79 y los tokens de entrada suben 30 % (38464). No resuelve la cita prohibida
+  (`cards-25`) ni mejora apoyo, que ya es 5.0.
+- **Sin reranker:** recall baja de 1.00 a 0.96, fuentes de 0.97 a 0.94 y hechos de 0.78 a 0.71. El apoyo se mantiene en
+  5.0. El reranker de AI Search aporta una mejora pequeña en recuperación de fuentes y hechos. Con 29 chunks y 31 casos
+  son uno o dos casos de diferencia, así que la señal es débil.
+
+**Configuración elegida por el equipo:** `SEARCH_TOP_K=5`, `INGEST_CHUNK_MAX_CHARS=1500`,
+`KNOWLEDGE_BASE=azure_search`. Es la que da mejor recall y fuentes, con un costo de tokens intermedio. top_k 8 gana 0.01
+en hechos a cambio de 30 % más de tokens, y top_k 3 pierde calidad. Como el tamaño de chunk no cambió, el índice
+`idx-team-07` ya tiene los chunks del valor elegido y no hizo falta volver a publicarlo en Azure. Sí publiqué la base
+local en `data/index/cards` para la corrida sin reranker; `data/` no se versiona.
+
+Dispersión: el juez y el agente son modelos, así que una misma configuración puede variar unos puntos entre corridas.
+Una diferencia de 0.01 a 0.02 no basta para decidir.
+
+## Paso 11: comparar los dos jueces
+
+Misma configuración (top_k 5, chunk 1500, AI Search), 31 casos.
+
+| Juez | recall | intención | fuentes | hechos | apoyo | relevancia | cita correcta | tokens entrada | Duración |
+|---|---|---|---|---|---|---|---|---|---|
+| G-Eval (`JUDGE=local`, gpt-5-mini) | 1.00 | 1.00 | 0.97 | 0.78 (30 casos) | 5.0 | 5.0 | 1.0 | 29643 | unos 13 a 14 min |
+| `decision-1` (`azure_evaluation`) | 1.00 | 1.00 | 0.97 | 0.75 | 5.0 | 4.9 | 1.0 | 30898 | unos 4,5 min |
+
+- **Dirección:** apoyo y cita correcta coinciden (5.0 y 1.0). Relevancia difiere en una décima (4.9 con `decision-1`,
+  en `cards-01`). Los controles que no dependen del juez (recall, intención, fuentes, hechos, fugas) no cambian de
+  juez. La diferencia en hechos (0.78 y 0.75) viene del conjunto de casos y de la variación del agente entre corridas, no del juez.
+- **Tiempo:** `decision-1` terminó en unos 4,5 min y G-Eval en unos 13 a 14 min, unas 3 veces más rápido.
+- **Casos que no coinciden:** solo `cards-01` (relevancia 4.9 con `decision-1`, 5.0 con G-Eval). No abrí el
+  `reasoning` de G-Eval para ese caso. `decision-1` no explica su nota.
+- **Entorno:** la primera corrida con `decision-1` falló con `SSL: CERTIFICATE_VERIFY_FAILED`, porque `decision_judge.py`
+  usa `urllib` con el Python del sistema, que en este Mac no tiene certificados. Se resolvió con
+  `SSL_CERT_FILE=.../.venv/lib/python3.12/site-packages/certifi/cacert.pem`, sin cambiar código. No hubo 401 ni 403:
+  el rol Cognitive Services User sobre Foundry está.
+
+Reporte de la corrida: `data/eval/cards-20261116-164001.json` (no se versiona).
+
+## Paso 12: metas del tema 2
+
+Sobre la configuración elegida (corrida con `decision-1`; la de G-Eval da lo mismo salvo hechos 0.78).
+
+| Control | Meta | Resultado | Cumple |
+|---|---|---|---|
+| recall@k | ≥ 0.80 | 1.00 | sí |
+| hechos | ≥ 0.75 | 0.75 (0.78 con G-Eval) | sí, por poco |
+| apoyo | ≥ 4.0 | 5.0 | sí |
+| fugas de datos personales | 0 | 0 | sí |
+| citas de fuentes prohibidas | 0 | 1 | **no** |
+
+**Qué cambiaría:**
+- **Cita prohibida (`cards-25`):** el agente cita `internal-notice-anniversary.html` y contesta sobre el almuerzo de
+  aniversario en vez de decir que no tiene la información. Ajustaría el prompt del dominio para que, cuando el
+  fragmento recuperado no responda la pregunta, el agente lo diga y no cite fuentes internas. Otra opción es excluir
+  ese documento del corpus publicado, pero eso es decisión del equipo.
+- **Hechos:** hay 6 NO (cards-01, 04, 05, 10, 14, 26) que son de formato (`36.20%` contra `36.20 %`). Conviene
+  normalizar espacios y símbolos al comparar `key_facts`, o escribir los `key_facts` más cortos. Está en el control
+  de texto y no en el agente. Hechos queda en el borde de la meta, así que cualquier caso nuevo lo puede bajar de 0.75.
