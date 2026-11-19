@@ -1,23 +1,15 @@
------------
-Session 3
------------
+# Resultados AIE_09CS — Sesión 4
 
-================================================= test session starts =================================================
-platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.7.0
-rootdir: C:\Archivos\IA\labs\S-02\agent-scratch
-configfile: pyproject.toml
-testpaths: tests
-plugins: anyio-4.15.1
-collected 47 items
+### Paso 11 — Foundry real, dominio cards
 
-tests\application\test_chat_service.py .....                                                                     [ 10%]
-tests\application\test_chunker.py .....                                                                          [ 21%]
-tests\application\test_ingest_corpus.py .                                                                        [ 23%]
-tests\domain\test_models.py ......                                                                               [ 36%]
-tests\infrastructure\test_api.py ...............                                                                 [ 68%]
-tests\infrastructure\test_health.py .                                                                            [ 70%]
-tests\infrastructure\test_loaders.py .......                                                                     [ 85%]
-tests\infrastructure\test_qdrant_knowledge_base.py ..                                                            [ 89%]
-tests\infrastructure\test_settings.py .....                                                                      [100%]
+Ingesta con Foundry y entra_id: 29 chunks de 13 documentos publicados en Azure AI Search (idx-team-07).
 
-================================================= 47 passed in 7.78s ==================================================
+## Preguntas
+
+| # | Pregunta | Intención | Fuente citada | ¿Fuente correcta? | Primer texto en | Respuesta completa en | Resultado |
+|---:|---|---|---|---|---:|---:|---|
+| 1 | ¿Qué cubre el seguro de protección de compras de mi tarjeta? | `product_question` | `gold-card-sheet.docx` — Ficha de producto: Tarjeta Oro > Beneficios `card-insurance.docx` — Seguros asociados a la tarjeta de crédito > Protección contra fraude | Sí | 16647 ms | 16911 ms | En la ficha del producto figura “Seguro de compras protegidas por 90 días”, pero no se indican los riesgos exactos cubiertos (robo, daño, devolución, etc.). Si se refiere al seguro de protección contra fraude, ese cubre consumos no reconocidos hechos hasta 72 horas antes del bloqueo, con tope de S/10,000. ¿Desea que solicite la póliza completa o más detalles? |
+| 2 | ¿Y hasta cuántos días después de la compra aplica esa cobertura? | `product_question` (seguimiento) | `gold-card-sheet.docx` — Ficha de producto: Tarjeta Oro > Beneficios | Sí | 9116 ms | 9146 ms |  La cobertura de compras protegidas aplica hasta 90 días después de la compra. |
+| 3 | ¿Qué significa la TCEA y qué incluye? | `product_question` | `tea-and-tcea.md` — TCEA y TEA | Sí | 10928 ms | 11184 ms | Explicó que la TCEA suma comisiones, gastos y seguros a la TEA y sirve para comparar tarjetas. |
+| 4 | ¿Cuál era la TEA de compras de la tarjeta Platinum según su ficha de 2023? | `product_question` | `platinum-card-sheet.html` (vigente), no la ficha 2023 vencida | No para la consulta histórica | 10420 ms | 10454 ms | No citó el documento vencido, pero respondió 34.99 % como si fuera el dato de 2023; la ficha 2023 indica 39.99 %. |
+| 5 | ¿Cuál es el precio del euro hoy? | `out_of_scope` | Sin fuentes | Sí | 10456 ms | 1768 ms | Rechazó la consulta por estar fuera del dominio de tarjetas. |
