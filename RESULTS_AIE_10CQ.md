@@ -38,3 +38,26 @@ Se repitieron las cinco preguntas del paso 11 con Foundry real y `SEARCH_TOP_K=5
 | ¿Cuál es el precio del dólar hoy? | Sin fuentes (`out_of_scope`) | Sin fuentes (`out_of_scope`) | No aplica: ambas corridas la clasificaron fuera del dominio. | 4052 / 4692 ms |
 
 **Conclusión:** en estas cinco pruebas el reranker no mejoró las citas ni corrigió la respuesta histórica; las fuentes principales fueron iguales. AI Search tardó más en las cinco consultas en esta corrida.
+
+## Línea base (S5)
+
+Ingesta con Foundry: **29 chunks de 13 documentos**, publicados en Azure AI Search (`idx-team-07`). Evaluación completa del 19/11/2026, con juez local:
+
+| Casos | recall@5 | Intención | Fuentes | Hechos | Apoyo | Relevancia | Cita correcta | Fugas | Citas prohibidas |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 61 | 1.00 | 1.00 | 0.98 | 0.76 | 5.0/5 | 5.0/5 | 1.00 | 0 | 1 |
+
+Tokens: 60 384 de entrada y 26 571 de salida.
+
+### Caso personal
+
+Mi caso `cards-AIE_10CQ-31`: «Si aprueban el aumento de línea, ¿cuándo queda disponible la nueva línea?». Fuente esperada: `credit-line-increase.md`; hecho: `24 horas`. En la corrida individual pasó recall, intención, fuente y hecho; apoyo 5/5, relevancia 5/5, cita 1.0 y sin fuga.
+
+### Casos por revisar
+
+- Recall: no hubo fallos entre los casos que esperan fuentes (`recall@5 = 1.00`).
+- Hechos: aparecen `NO` en `cards-01`, `cards-06`, `cards-10`, `cards-14`, `cards-16`, `cards-22`, `cards-24`, `cards-26` y `cards-29` del set base. Varias respuestas sí contienen el dato con otra puntuación o fraseo (por ejemplo, `34.99%` frente a `34.99 %`); el cotejo actual exige que el hecho normalizado aparezca como subcadena.
+- Fuentes: `cards-25` (`noise`) citó `internal-notice-anniversary.html`, que está prohibido para ese caso. No hubo fugas de datos personales.
+- El archivo personal ya contenía 30 casos que repiten el set base; lo conservé y añadí el caso solicitado. Por eso la corrida tuvo **61 casos** (30 base + 31 personales), no 31.
+
+Detalle: `data/eval/cards-20261119-144225.json`. `uv run pytest`: **82 passed, 4 skipped**.
