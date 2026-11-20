@@ -147,3 +147,39 @@ PASO 12: Conclusiones.
 
 - **A cumple todos los controles.** `hechos` pasa por poco (0.76 frente a la meta de 0.75): 5 de los 7 fallos son de formato (`54.99%` en vez de `54.99 %`).
 - **B incumple `hechos` (0.44).** Los fallos vienen sobre todo del golden: valores que no coinciden con el corpus (S/ 1 500 y 37.80 %), un formato de `S/3` y 2 respuestas de «no hay información». Ver el detalle en la sección de arriba.
+
+## Sesión 6 — Tools del MCP en el chat
+
+Dominio: `cards`. MCP: el mock (`http://127.0.0.1:8200/mcp`) y, si ya tienes `MCP_URL`, el compartido (`bank-mcp`).
+
+### Tools de tu dominio
+
+| MCP | Tools que lista `dev/mcp/mcp_tools.py` |
+|---|---|
+| Mock | `http://127.0.0.1:8200/mcp` · cards · 3 tools<br>`get_cards` (consulta): `customer_id`<br>`get_credit_line` (consulta): `card_id`<br>`request_credit_line_increase` (acción sensible): `card_id`, `requested_limit` |
+| Compartido | `https://ca-mcp-server.icybush-2ea2dfc1.eastus2.azurecontainerapps.io/mcp` · cards · 3 tools<br>`get_cards` (consulta): `customer_id`<br>`get_credit_line` (consulta): `card_id`<br>`request_credit_line_increase` (acción sensible): `card_id`, `requested_limit` |
+
+
+### Conversación en `dev/chat.py` (paso 12)
+
+| Prueba | Mensaje | Tool pedida (`→`) | Qué pasó | Primer texto / respuesta completa (ms) |
+|---|---|---|---|---|
+| Consulta de tu dominio | Soy CUS-1001, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000? | `get_credit_line(card_id=CRD-2001)` y luego `request_credit_line_increase(card_id=CRD-2001, requested_limit=4000)` | `get_credit_line` falló: «El servicio del banco no responde». El agente siguió con la acción sensible, que **no se ejecutó**: quedó `pendiente_aprobacion`. Respondió (`sensitive_action`) que registró la solicitud de S/ 4,000 y citó `credit-line-increase.md`. | 43.590 / 45.019 |
+| Acción confirmada | Sí, solicítalo, el motivo es mayor gasto familiar | `request_credit_line_increase(card_id=CRD-2001, requested_limit=4000)` | La tool volvió a responder `pendiente_aprobacion`: no se ejecuta hasta que lo apruebe un asesor. El agente informó que el aumento a S/ 4,000 quedó pendiente (respuesta en 2 días hábiles, línea disponible en 24 horas) y recordó los requisitos. | 29.716 / 30.251 |
+| Sin tool que la resuelva | ¿Cuál es el saldo de mi cuenta de ahorros? | Ninguna | Intención `out_of_scope`. No inventó ningún saldo: dijo que no puede consultarlo y derivó a la banca móvil o por Internet, a atención al cliente o a una sucursal. | 11.980 / 12.145 |
+| Tool de otro dominio (`fees`) | Soy CUS-1001, ¿por qué me cobraron comisiones este mes? ¿Alguna se puede devolver? | Ninguna: el MCP solo muestra las tools del dominio `cards`, así que las de `fees` no estaban disponibles | Intención `product_question`: respondió solo con RAG (`cardholder-cases.pdf`, `classic-card-sheet.pdf`, `card-insurance.docx`). Dio ejemplos de cargos de los documentos y aclaró que no tenía la política de devolución, por lo que no pudo confirmar si alguna comisión se devuelve. Tiempos: 16.447 / 16.832 ms. | — |
+
+
+### ¿El modelo inventó algún dato cuando ninguna tool lo resolvía?
+
+No. En las dos pruebas sin tool disponible no hubo datos inventados:
+
+- **Saldo de ahorros:** no dio ninguna cifra. Declaró que no puede consultarlo y mandó al cliente a la banca móvil, a atención al cliente o a una sucursal.
+- **Comisiones (tool de `fees`):** no inventó los cargos del cliente `CUS-1001`. Usó solo ejemplos de los documentos (membresía Clásica S/ 120, membresía Oro S/ 240, seguro de desgravamen 0.12 % mensual), que coinciden con el corpus. Dijo de forma explícita que los fragmentos no incluyen la política de devolución.
+
+
+### Conclusión
+
+- **Las acciones sensibles no se ejecutan solas.** En las dos pruebas con `request_credit_line_increase` la tool respondió `pendiente_aprobacion`, y el agente lo comunicó al cliente con los plazos y requisitos del corpus.
+- **Sin tool, el agente no inventa.** Con saldo de ahorros respondió `out_of_scope`, y con comisiones (otro dominio) contestó solo con RAG y reconoció lo que no sabía.
+- **La latencia es el punto débil.** Con tools tardó 30–45 s hasta la respuesta completa, y sin tools 12–17 s. Además, `get_credit_line` falló con «El servicio del banco no responde» en la primera prueba y habría que repetirla.
