@@ -196,3 +196,69 @@ Sobre la configuración elegida (corrida con `decision-1`; la de G-Eval da lo mi
 - **Hechos:** hay 6 NO (cards-01, 04, 05, 10, 14, 26) que son de formato (`36.20%` contra `36.20 %`). Conviene
   normalizar espacios y símbolos al comparar `key_facts`, o escribir los `key_facts` más cortos. Está en el control
   de texto y no en el agente. Hechos queda en el borde de la meta, así que cualquier caso nuevo lo puede bajar de 0.75.
+
+## Sesión 6 — Tools del MCP en el chat
+
+Dominio: `cards`. MCP: el mock (`http://127.0.0.1:8200/mcp`). Todavía no tengo `MCP_URL` ni `MCP_SCOPE` del compartido
+(`bank-mcp`), así que el `.env` queda con el mock y `MCP_SCOPE` vacío. Foundry real (`gpt-5-mini`) e
+índice `idx-team-07` en Azure AI Search. Los pasos 1 a 11 dejan 110 tests en verde.
+
+### Tools de tu dominio
+
+| MCP | Tools que lista `dev/mcp/mcp_tools.py` |
+|---|---|
+| Mock | 3: `get_cards` (consulta), `get_credit_line` (consulta), `request_credit_line_increase` (acción sensible) |
+| Compartido | pendiente: aún no tengo la URL ni el `MCP_SCOPE` |
+
+Con `DOMAIN=loans` el mismo comando lista 3 tools de loans, y pedir `simulate_installment` con `cards` responde
+`Unknown tool`. En MCP Inspector, con el header `X-Bank-Domain: cards` se ven las 3 tools (las dos consultas como solo
+lectura y la acción como destructiva) y sin header se ven las 15. `customer_id=ABC` falla con "String should match
+pattern '^CUS-\d{4}$'".
+
+Llamadas directas del paso 7: `get_credit_line` da línea 3000, usada 1240.5, disponible 1759.5, máximo 4500.
+`request_credit_line_increase` con 9000 falla las dos veces con "La línea máxima para esta tarjeta es 4500.00 PEN";
+con 4000 devuelve `CLI-9001` en estado `registered`.
+
+### Conversación en `dev/chat.py` (paso 12)
+
+| Prueba | Mensaje | Tool pedida (`→`) | Qué pasó | Primer texto / respuesta completa (ms) |
+|---|---|---|---|---|
+| Consulta de tu dominio | Soy CUS-1001, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000? | `get_credit_line(card_id=CRD-2001)` | Línea 3000, máximo 4500. Pidió además `request_credit_line_increase(4000)` sin esperar confirmación | 28680 / 28948 |
+| Acción confirmada | Sí, solicítalo, el motivo es mayor gasto familiar | `request_credit_line_increase(card_id=CRD-2001, requested_limit=4000)` | NO SE EJECUTA, pendiente de aprobación. Respuesta: "Solicitud registrada ... pendiente de aprobación" | 30060 / 30321 |
+| Sin tool que la resuelva | ¿Cuál es el saldo de mi cuenta de ahorros? | ninguna | Dijo que no puede consultarlo y mandó a la app o a Atención al Cliente | 13454 / 13597 |
+| Tool de otro dominio | ¿Cuánto pagaría al mes por un préstamo de 20000 soles a 24 meses? | ninguna (`simulate_installment` no existe para cards) | Pidió la TEA o el producto y no dio una cuota. Citó `tea-and-tcea.md` | 8436 / 8598 |
+
+Repetí la consulta y la confirmación 2 veces más (corridas 2 y 3, sesiones nuevas):
+
+| Corrida | Mensaje 1: tools | Mensaje 2: tools | Palabras de la respuesta del mensaje 2 |
+|---|---|---|---|
+| 1 | `get_credit_line` y luego `request_credit_line_increase(4000)` | `request_credit_line_increase(4000)` | "Solicitud registrada ... pendiente de aprobación" |
+| 2 | `request_credit_line_increase(4000)` | `request_credit_line_increase(4000)` | "He registrado la solicitud ... pendiente de aprobación" |
+| 3 | `request_credit_line_increase(4000)` | `request_credit_line_increase(4000)` | "Listo: he solicitado el aumento ... pendiente de aprobación" |
+
+Lo que funciona: las 6 llamadas a `request_credit_line_increase` volvieron con `pending_approval` y el MCP no recibió
+ninguna; el modelo eligió la tool y sus argumentos sin ayuda; las respuestas citan `credit-line-increase.md` junto con
+el resultado de la tool.
+
+Lo que no sale como espera la guía, en las 3 corridas:
+- **Pide la acción en el primer mensaje.** Con "¿puedo subir ... a 4000?" ya llamó a `request_credit_line_increase`. En
+  las corridas 2 y 3 ni consultó `get_credit_line` antes, así que no verificó el máximo de 4500.
+- **Dice "registré" o "listo".** Aunque añade que queda pendiente de aprobación, la guía toma esas palabras como señal
+  de que el modelo no siguió bien el resultado `pendiente_aprobacion`. No es un riesgo de seguridad, porque la tool no
+  se ejecuta, pero el texto al cliente es ambiguo.
+
+### ¿El modelo inventó algún dato cuando ninguna tool lo resolvía?
+
+No. Con el saldo de ahorros no dio ningún monto. Con la cuota del préstamo, que en cards no tiene tool, no calculó
+ni estimó: pidió la TEA. Los montos de la línea (3000, máximo 4500) salieron de `get_credit_line` y coinciden con lo
+que dio el mock en el paso 7. Lo único que añade el modelo por su cuenta son plazos y requisitos del aumento de
+línea (2 días hábiles, 24 horas, tarjeta activa 6 meses), y vienen del corpus (`credit-line-increase.md`), citado.
+
+### Conclusión
+
+El MCP simulado cumple el contrato (15 tools, filtro por dominio, errores legibles), y el agente usa las tools de
+cards desde el chat con las acciones sensibles bloqueadas. El punto flojo es el comportamiento del modelo: pide la
+acción antes de que el cliente confirme y la describe como "registrada". Cambiaría `TOOLS_HEADER` (o el prompt de
+cards) para exigir consultar `get_credit_line` primero, esperar la confirmación del cliente y decir "la pedí, queda
+pendiente de un asesor". Lo dejo para después, porque esta sesión no lo pide. Falta probar con el MCP compartido
+cuando tenga `MCP_URL` y `MCP_SCOPE`: solo cambian esas dos líneas del `.env`.
