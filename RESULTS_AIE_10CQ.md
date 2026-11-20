@@ -58,6 +58,54 @@ Mi caso `cards-AIE_10CQ-31`: «Si aprueban el aumento de línea, ¿cuándo queda
 - Recall: no hubo fallos entre los casos que esperan fuentes (`recall@5 = 1.00`).
 - Hechos: aparecen `NO` en `cards-01`, `cards-06`, `cards-10`, `cards-14`, `cards-16`, `cards-22`, `cards-24`, `cards-26` y `cards-29` del set base. Varias respuestas sí contienen el dato con otra puntuación o fraseo (por ejemplo, `34.99%` frente a `34.99 %`); el cotejo actual exige que el hecho normalizado aparezca como subcadena.
 - Fuentes: `cards-25` (`noise`) citó `internal-notice-anniversary.html`, que está prohibido para ese caso. No hubo fugas de datos personales.
-- El archivo personal ya contenía 30 casos que repiten el set base; lo conservé y añadí el caso solicitado. Por eso la corrida tuvo **61 casos** (30 base + 31 personales), no 31.
 
 Detalle: `data/eval/cards-20261119-144225.json`. `uv run pytest`: **82 passed, 4 skipped**.
+
+### Paso 10 — Antes y después
+
+Evalué las cuatro variantes de a una, sobre los mismos 61 casos y con juez local. El baseline es la corrida S5 (`1500/5`, Azure AI Search). La variante de chunks de 800 chars también produjo 29 chunks.
+
+| Configuración | Base | Chunks | Recall@K | Intención | Fuentes | Hechos | Apoyo | Cita correcta | Citas prohibidas | Tokens entrada |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `1500 / TOP_K=5` | Azure (baseline) | 29 | 1.00 | 1.00 | 0.98 | 0.76 | 5.0/5 | 1.00 | 1 | 60 384 |
+| `800 / TOP_K=5` | Azure | 29 | 1.00 | 1.00 | 0.98 | 0.71 | 5.0/5 | 1.00 | 1 | 60 202 |
+| `800 / TOP_K=3` | Azure | 29 | 1.00 | 1.00 | 0.97 | 0.73 | 5.0/5 | 1.00 | 2 | 48 777 |
+| `800 / TOP_K=8` | Azure | 29 | 1.00 | 1.00 | 0.98 | 0.76 | 5.0/5 | 1.00 | 1 | 75 357 |
+| `800 / TOP_K=8` | Local, sin reranker | 29 | 1.00 | 0.98 | 0.97 | 0.80 | 5.0/5 | 1.00 | 2 | 69 999 |
+
+**Elección del equipo: `INGEST_CHUNK_MAX_CHARS=1500`, `SEARCH_TOP_K=5`, `KNOWLEDGE_BASE=azure_search`.** La variante Azure `800/8` no mejoró los resultados frente al baseline y consumió alrededor de 25% más tokens de entrada. `800/3` ahorró tokens, pero bajó hechos y fuentes y duplicó las citas prohibidas. La búsqueda local elevó hechos a 0.80, pero bajó intención y fuentes, y también tuvo dos citas prohibidas. Priorizamos el balance de calidad y citas seguras del baseline, con menos contexto que `TOP_K=8`.
+
+Restauré los chunks de 1500 chars y los publiqué de nuevo: **29 chunks en `idx-team-07`**. La configuración de `.env` queda en `azure_search` / `TOP_K=5`; las variables usadas en las pruebas fueron temporales y no se guardaron.
+
+Informes de las variantes: `data/eval/cards-20261119-145828.json` (`800/5`), `data/eval/cards-20261119-151045.json` (`800/3`), `data/eval/cards-20261119-152400.json` (`800/8`, Azure) y `data/eval/cards-20261119-153633.json` (`800/8`, local).
+
+### Paso 11 — Comparación de jueces
+
+Para comparar el mismo examen, dejé el golden set en **30 casos base + 1 caso personal** y ejecuté ambos jueces con `.env` sin cambios (`1500` chars, `TOP_K=5`, Azure AI Search). Las evaluaciones vuelven a generar las respuestas del agente, por lo que puede haber variación de intención entre corridas.
+
+| Juez | Casos | Apoyo | Relevancia | Cita correcta | Tiempo total |
+|---|---:|---:|---:|---:|---:|
+| G-Eval (`local`) | 31 | 5.00/5 | 5.00/5 | 1.000 | 6 min 12 s |
+| decision-1 (`azure_evaluation`) | 31 | 4.986/5 | 4.953/5 | 0.997 | 3 min 52 s |
+
+Las notas van en la misma dirección: ambos califican el apoyo y las citas prácticamente al máximo; decision-1 devuelve probabilidades, por eso sus promedios no son enteros. Fue alrededor de **2 min 20 s más rápido** (38% menos tiempo).
+
+En `cards-AIE_10CQ-01`, decision-1 dio apoyo 4.819 y cita 0.924, frente a 5/5 y 1.0 de G-Eval. El `reasoning` de G-Eval dice que las afirmaciones están respaldadas por `cards-faq.md`, `cards-comparison.csv` y `classic-card-sheet.pdf`. En `cards-AIE_10CQ-19`, G-Eval también justificó su 5/5 indicando que la membresía y su exoneración coinciden con la ficha Platinum; decision-1 dio relevancia 4.394. Son diferencias de grado, no una inversión de la conclusión sobre respaldo/cita.
+
+Hubo una diferencia de intención en `cards-AIE_10CQ-11`: una generación fue clasificada `sensitive_action` y la otra `product_question`. La intención la predice el agente, no es una nota del juez; las dos respuestas dieron los requisitos solicitados. Por eso las exactitudes de intención fueron 0.97 y 1.00, respectivamente.
+
+Detalle local: `data/eval/cards-20261119-155003.json`. Detalle decision-1: `data/eval/cards-20261119-155414.json`.
+
+### Paso 12 — Cierre del tema 2
+
+Evaluación de cierre: los 31 casos del golden set, con G-Eval y la configuración elegida (`1500` chars, `TOP_K=5`, Azure AI Search). Todas las metas se cumplen:
+
+| Control | Meta | Resultado | Estado |
+|---|---:|---:|---|
+| Recall@5 | ≥ 0.80 | 1.00 | Cumple |
+| Hechos | ≥ 0.75 | 0.75 | Cumple, justo en el mínimo |
+| Apoyo | ≥ 4.0/5 | 5.0/5 | Cumple |
+| Fugas de datos personales | 0 | 0 | Cumple |
+| Citas de fuentes prohibidas | 0 | 0 | Cumple |
+
+No hay metas incumplidas que requieran un cambio. Hechos es el resultado más ajustado; si baja en una evaluación futura, revisaría los hechos clave y su redacción en el golden set y el contexto recuperado, empezando por los casos `facts=NO` anotados en la línea base. Resultado: **aprobado para el tema 2**; estas metas aún no bloquean despliegues.
