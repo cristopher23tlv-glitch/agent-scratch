@@ -346,3 +346,72 @@ conversación de `agent_framework` 2 quedó guardado, entre otras cosas:
 - **Pendiente de mejorar:** la latencia (10 a 30 s hasta el primer texto con cualquier runtime) y el texto al cliente, que
   a veces dice «registrado» o «anoté el motivo» cuando la tool no lo hizo. Ajustaría `skills/cards.md` para pedir la
   acción solo después de la confirmación y para decir «la pedí, queda pendiente».
+
+## Sesión 8 — Aprobación humana, validación y reintentos
+
+Dominio: `cards` (paso 6). Foundry real (`gpt-5-mini`), MCP compartido (3 tools: `get_cards`, `get_credit_line`,
+`request_credit_line_increase`) e índice `idx-team-07`. `uv run pytest` da 132 passed y 5 skipped (137 en total, como pide
+la guía). No levanté `uvicorn`: corrí el agente en proceso con el mismo `build_chat_service` que usa la API y llamé a
+`handle_stream` y a `resolve`, que son lo que ejecutan `/chat/stream` y `/chat/actions`. En lugar de `dev/chat.py`, mi
+script contestó la pregunta del asesor con `s` o `n`, según el caso.
+
+| Caso | Runtime | Mensaje | Qué pasó | Resultado o ID |
+|---|---|---|---|---|
+| Aprobar | `agent_framework` | «Soy CUS-1001, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000?» y «Sí, solicítalo, el motivo es mayor gasto familiar» | En el turno 1 el modelo ya pidió `request_credit_line_increase(CRD-2001, 4000)`: quedó **NO SE EJECUTA, pendiente de aprobación** (`call-2e6bc85b`). Respondí `s` y se ejecutó una vez. Una segunda decisión con el mismo id dio `not_found` | `{"id": "CLI-9001", "card_id": "CRD-2001", "requested_limit": 4000.0, "status": "registered"}` |
+| Rechazar | `react` | Los mismos dos mensajes | El turno 1 solo consultó (`get_cards`, `get_credit_line`) y pidió confirmación. En el turno 2 pidió la acción y quedó pendiente (`call_FvgGXX9UTFg04DrdBKnjkLLU`). Respondí `n`: no se llamó al MCP. El agente le dijo al cliente que el asesor la rechazó | `{"status": "rechazada", "detail": "El asesor rechazó la acción: no se ejecutó."}` |
+| Error de negocio (`CUS-9999`) | `react` y `agent_framework` | «Soy CUS-9999, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000?» | `get_cards(CUS-9999)` volvió con error, sin reintento (no hay avisos de intento en el log). El agente pidió confirmar el código de cliente y no consultó nada más | `{"error": "El cliente CUS-9999 no existe"}` |
+| Input inválido | `react` y `agent_framework` | «Mi número de cliente es 1001, ¿puedo subir la línea de mi tarjeta?» | El modelo no mandó `1001`: él mismo armó `get_cards(customer_id=CUS-1001)`, que cumple el patrón, y siguió con `get_credit_line`. La validación no tuvo nada que frenar | `get_cards` ok, `get_credit_line` ok |
+
+Sobre el caso de input inválido: con `gpt-5-mini` no logré que el modelo mandara un `customer_id` mal formado, así que la
+validación del paso 3 no se disparó en el MCP real. La regla la cubre `test_invalid_arguments_never_reach_the_mcp`. La
+caída del MCP tampoco la provoqué: la cubren `test_a_query_that_fails_once_is_retried` y
+`test_a_query_that_keeps_failing_is_an_error_and_the_turn_goes_on`.
+
+### La trayectoria en el log
+
+Con `agent_framework` (aprobar):
+
+```text
+trayectoria lab8-action-agent_framework: get_cards error → get_credit_line ok → request_credit_line_increase pending_approval → respuesta sensitive_action
+trayectoria lab8-action-agent_framework: decisión del asesor → request_credit_line_increase ok
+```
+
+Con `react` (rechazar):
+
+```text
+trayectoria lab8-action-react: get_cards ok → get_credit_line ok → respuesta sensitive_action
+trayectoria lab8-action-react: request_credit_line_increase pending_approval → respuesta sensitive_action
+trayectoria lab8-action-react: decisión del asesor → request_credit_line_increase rejected
+```
+
+En la primera, `get_cards` salió `error` porque el MCP compartido respondió «El servicio del banco no responde; intenta de
+nuevo en unos minutos». Es un error de negocio: no se reintentó. El modelo siguió con `get_credit_line`, que sí
+respondió, y el turno terminó bien.
+
+En esa corrida de `agent_framework`, mi script aprobó también la segunda solicitud pendiente (el turno 2 volvió a pedir
+la acción), así que en el MCP quedaron dos solicitudes registradas: `CLI-9001` y `CLI-9002`, ambas por 4000 en `CRD-2001`.
+Después limité el script a una decisión por corrida.
+
+### ¿Algo se ejecutó sin que lo aprobaras?
+
+No. En las 2 corridas con una acción sensible (aprobar con `agent_framework`, rechazar con `react`) la línea de la tool
+dijo `NO SE EJECUTA, pendiente de aprobación` y el resultado del MCP apareció solo después de mi `s`. Al responder `n` no
+hubo ninguna llamada al MCP. Una segunda decisión con el mismo `action_id` dio `not_found` en las dos corridas: la
+decisión se toma una sola vez. Con `react` y con `agent_framework` pasó lo mismo, porque la aprobación vive en `_run` y
+en `resolve`, no en el framework.
+
+### Conclusión
+
+- **La firma es de una persona.** El modelo pidió la acción sensible 3 veces (2 con `agent_framework`, 1 con `react`) y ninguna se ejecutó sin mi decisión. Con
+  `react` una vez la pidió recién en el turno 2, después de mi confirmación. Con `agent_framework` la pidió en el turno 1,
+  sin que yo confirmara; eso no cambió el resultado, porque quedó pendiente, pero el texto al cliente suena a que ya
+  la gestionó.
+- **El texto después de la decisión es fiel al resultado.** Tras aprobar dijo «fue registrada (ID CLI-9001) y queda para
+  que el banco la procese; no se ha aplicado», y tras rechazar, «la acción no se ejecutó». El `DECISION_HEADER` evita el
+  «ya quedó tu línea en S/ 4.000». Antes de la decisión sí hubo frases exageradas: en el turno 1 de `agent_framework` dijo
+  «He registrado la solicitud», cuando todavía estaba pendiente.
+- **El agente no se cayó.** Un error del MCP (`get_cards`) y un cliente que no existe terminaron en una respuesta, no en
+  un 502.
+- **Pendiente de mejorar:** la latencia. Hasta el primer texto pasaron entre 15 y 51 s (50,7 s en el turno 1 de
+  `agent_framework`, con 4 llamadas al modelo), y la decisión del asesor tarda entre 7 y 9 s más en responderle al cliente.
+  Además, los reintentos solo los vi en tests: falta probarlos contra un MCP que de verdad se caiga.
