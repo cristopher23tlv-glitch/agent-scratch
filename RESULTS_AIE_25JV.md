@@ -183,3 +183,41 @@ No. En las dos pruebas sin tool disponible no hubo datos inventados:
 - **Las acciones sensibles no se ejecutan solas.** En las dos pruebas con `request_credit_line_increase` la tool respondió `pendiente_aprobacion`, y el agente lo comunicó al cliente con los plazos y requisitos del corpus.
 - **Sin tool, el agente no inventa.** Con saldo de ahorros respondió `out_of_scope`, y con comisiones (otro dominio) contestó solo con RAG y reconoció lo que no sabía.
 - **La latencia es el punto débil.** Con tools tardó 30–45 s hasta la respuesta completa, y sin tools 12–17 s. Además, `get_credit_line` falló con «El servicio del banco no responde» en la primera prueba y habría que repetirla.
+
+## Sesión 7 — Skills, memoria de trabajo y Agent Framework
+
+Dominio: `cards`. La misma conversación de 4 turnos con los dos runtimes (paso 7), cambiando solo `AGENT_RUNTIME` en el `.env`. Modelo con razonamiento (`gpt-5-mini`). Una sola corrida por runtime.
+
+Turnos: (1) «Soy CUS-1001, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000?» · (2) «Sí, solicítalo, el motivo es mayor gasto familiar» · (3) «¿Cuál es el saldo de mi cuenta de ahorros?» · (4) «¿Cuál era la línea máxima de mi tarjeta?»
+
+| | `react` | `agent_framework` |
+|---|---|---|
+| Tools pedidas en la consulta (turno 1) | `get_cards(customer_id=CUS-1001)` y `get_credit_line(card_id=CRD-2001)` | Las mismas dos, en el mismo orden |
+| Tool pedida en la acción confirmada (turno 2) | Solo `request_credit_line_increase(card_id=CRD-2001, requested_limit=4000)`, sin repetir `get_cards` ni `get_credit_line` | Igual |
+| La acción sensible quedó **NO SE EJECUTA** | Sí: `pendiente_aprobacion`; el agente lo comunicó como solicitud pendiente de un asesor | Sí: igual |
+| Pregunta de memoria respondida sin `→` | Sí (turno 4): «S/4,500», sin ninguna tool | Sí (turno 4): «S/ 4,500.00», sin ninguna tool |
+| Primer texto (ms), turnos 1 / 2 / 3 / 4 | 23.501 / 18.811 / 9.302 / 10.996 (suma 62.610) | 21.336 / 26.021 / 9.496 / 13.308 (suma 70.161) |
+| Respuesta completa (ms), turnos 1 / 2 / 3 / 4 | 23.786 / 19.079 / 9.445 / 11.011 (suma 63.321) | 21.614 / 26.167 / 9.559 / 13.317 (suma 70.657) |
+| Tokens entrada (por turno / total) | 4.466 / 4.620 / 3.018 / 3.173 → **15.277** | 4.466 / 4.713 / 3.009 / 3.181 → **15.369** |
+| Tokens salida (por turno / total) | 2.154 / 2.189 / 864 / 1.165 → **6.372** | 1.881 / 3.145 / 897 / 1.414 → **7.337** |
+
+### ¿La skill frenó la tool de otro dominio?
+
+Mensaje: «¿Cuál es el saldo de mi cuenta de ahorros?» (fuera del dominio `cards`; como mi dominio es `cards`, uso esta pregunta en lugar de la de `fees` de la guía).
+
+Respuesta: sí, la frenó. Con los dos runtimes la intención fue `out_of_scope` y no hubo ninguna llamada `→` a tools. El agente dijo que no puede consultar saldos de ahorros, no inventó ninguna cifra y derivó a banca móvil/web, cajero o servicio al cliente. Ni el MCP ni la skill dejan pasar la consulta.
+
+### Diferencias entre los dos runtimes
+
+- **Comportamiento: prácticamente idéntico.** Mismas tools, mismo orden, misma intención en cada turno (`sensitive_action`, `sensitive_action`, `out_of_scope`, `data_query`), mismas fuentes (`credit-line-increase.md`) y los mismos 4.466 tokens de entrada en el turno 1, lo que indica que el prompt es el mismo. El harness es nuestro: el cambio fue una línea del `.env`.
+- **Latencia: sin diferencia concluyente.** `react` fue ~10 % más rápido en total (63,3 s frente a 70,7 s), pero `agent_framework` ganó el turno 1 (21,6 s frente a 23,8 s) y perdió por 7 s el turno 2. Con una sola corrida es ruido del modelo, no del runtime. En ambos, el primer texto tarda 9–26 s y casi todo ese tiempo es razonamiento y tools.
+- **Streaming poco visible.** Entre el primer texto y la respuesta completa pasan solo 0,01–0,28 s. El texto sí llega en pedazos, pero casi al final, cuando el modelo ya terminó de razonar.
+- **Tokens de salida: `agent_framework` generó ~15 % más** (7.337 frente a 6.372), sobre todo en el turno 2 (3.145 frente a 2.189), probablemente por tokens de razonamiento. La entrada es casi igual (15.369 frente a 15.277).
+- **Estilo de la respuesta:** `react` trata de «usted»; `agent_framework`, de «tú». Es un efecto del modelo, no del runtime.
+- **Matices en la acción confirmada (turno 2).** La tool devolvió que la acción **no se registró todavía**. `react` dijo «He registrado la solicitud», lo que se pasa de lo que ocurrió. `agent_framework` dijo «He solicitado…» (más fiel), pero añadió «registré el motivo: mayor gasto familiar» (la tool solo recibe `card_id` y `requested_limit`, así que el motivo no se guarda en ninguna parte) y «Te avisaremos por los canales registrados» (no lo respalda la tool). Ambos citan los plazos y requisitos del corpus correctamente.
+
+### Conclusión
+
+- **Cambiar de runtime no cambia el resultado.** Con `react` o `agent_framework` el agente pide las mismas tools, la acción sensible no se ejecuta (`pendiente_aprobacion`) y lo comunica con los plazos del corpus.
+- **La memoria de trabajo funciona.** En el turno 2 no hubo `get_cards` ni `get_credit_line` previos: `CRD-2001` y `4000` salieron del turno anterior. En el turno 4 la línea máxima (S/ 4.500) se respondió sin ninguna tool, con lo que ya se había consultado.
+- **La latencia sigue siendo el punto débil:** 9–26 s hasta el primer texto con cualquier runtime, por el modelo que razona. Elegir runtime no la arregla.
