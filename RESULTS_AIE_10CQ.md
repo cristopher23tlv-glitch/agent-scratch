@@ -109,3 +109,58 @@ Evaluación de cierre: los 31 casos del golden set, con G-Eval y la configuraci�
 | Citas de fuentes prohibidas | 0 | 0 | Cumple |
 
 No hay metas incumplidas que requieran un cambio. Hechos es el resultado más ajustado; si baja en una evaluación futura, revisaría los hechos clave y su redacción en el golden set y el contexto recuperado, empezando por los casos `facts=NO` anotados en la línea base. Resultado: **aprobado para el tema 2**; estas metas aún no bloquean despliegues.
+
+## Sesión 6 — Tools del MCP en el chat
+
+Dominio: `cards`. MCP: el mock (`http://127.0.0.1:8200/mcp`) y el compartido (`https://ca-mcp-server.icybush-2ea2dfc1.eastus2.azurecontainerapps.io/mcp`).
+
+### Tools de tu dominio
+
+| MCP | Tools que lista `dev/mcp/mcp_tools.py` |
+|---|---|
+| Mock | get_cards, get_credit_line, request_credit_line_increase |
+| Compartido | get_cards, get_credit_line, request_credit_line_increase |
+
+### Conversación en `dev/chat.py` (paso 12)
+
+| Prueba | Mensaje | Tool pedida (`→`) | Qué pasó | Primer texto / respuesta completa (ms) |
+|---|---|---|---|---|
+| Consulta de tu dominio (aumento de línea) | `Soy CUS-1001, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000?` | `request_credit_line_increase(card_id=CRD-2001, requested_limit=4000)` | La tool indicó que no se ejecutó y quedó pendiente de aprobación. El agente informó que la solicitud quedó pendiente y explicó requisitos y plazos. | 15,213–25,576 / 15,499–26,527 |
+| Acción confirmada | `Sí, solicítalo, el motivo es mayor gasto familiar` | `request_credit_line_increase(card_id=CRD-2001, requested_limit=4000)` | La tool volvió a indicar que no se ejecutó y quedó pendiente de aprobación. El agente respondió que había solicitado el aumento, pero no hubo registro efectivo según el resultado de la tool. | 25,392–26,037 / 25,821–26,229 |
+| Sin tool que la resuelva | `¿Cuál es el saldo de mi cuenta de ahorros?` | Ninguna | En un intento hubo error 502 al obtener el token de Entra ID; en los siguientes el agente respondió `out_of_scope` y aclaró que no puede consultar saldos de ahorro. | 10,455–20,102 / 10,699–20,904 (respuestas `out_of_scope`) |
+| Tool de otro dominio | No se pudo probar. | No disponible en la lista consultada. | `tools/list` del MCP compartido devolvió tres tools, todas del dominio `cards`; no había una tool de otro dominio para probar. | — |
+
+### ¿El modelo inventó algún dato cuando ninguna tool lo resolvía?
+
+No, directamente lo marco como fuera del scope que es lo ideal.
+
+### Conclusión
+
+En general, las tools del dominio de tarjetas se activaron cuando correspondía y las consultas de saldo de ahorro se rechazaron como fuera de alcance. También confirmé que el MCP compartido expone las mismas tres tools de tarjetas; no pude probar una tool de otro dominio porque no aparece en la lista. Lo que sí noté es que, aunque la tool no ejecutó el aumento, el agente respondió como si ya lo hubiera solicitado; habría que ajustar ese mensaje para que no confirme una acción pendiente.
+
+## Sesión 7 — Skills, memoria de trabajo y Agent Framework
+
+Dominio: `cards`. Implementé y validé los dos runtimes en la rama `s7_AIE_10CQ`.
+
+| | `react` | `agent_framework` |
+|---|---|---|
+| Tools pedidas en la consulta | `get_cards` y `get_credit_line`; después `request_credit_line_increase` al confirmar | `get_cards` y `get_credit_line`; después `request_credit_line_increase` al confirmar |
+| La acción sensible quedó **NO SE EJECUTA** | Sí: pendiente de aprobación por el asesor | Sí: pendiente de aprobación por el asesor |
+| Pregunta de memoria respondida sin `→` | Sí: S/ 4,500.00, sin nueva tool | Sí: S/ 4,500.00, sin nueva tool |
+| Primer texto (ms) | Consulta inicial 14,995; línea 15,629; acción 24,179; memoria 14,925 | Consulta inicial 13,892; línea 18,022; acción 27,260; memoria 16,713 |
+| Respuesta completa (ms) | Consulta inicial 15,234; línea 15,884; acción 24,469; memoria 15,125 | Consulta inicial 14,002; línea 18,194; acción 27,444; memoria 16,754 |
+| Tokens (entrada / salida) | Consulta 3,086 / 477; línea 4,075 / 1,406; acción 4,692 / 2,601; memoria 2,884 / 1,463 | Consulta 3,086 / 604; línea 3,776 / 1,288; acción 4,725 / 2,798; memoria 3,020 / 1,352 |
+
+### ¿La skill frenó la tool de otro dominio?
+
+Mensaje probado: «Bloquea mi tarjeta CRD-2001 por robo». Respuesta real en ambos runtimes: `out_of_scope` y sin tool call. En `react` tardó 12,572 ms hasta el primer texto y 12,807 ms en completar (3,091 tokens de entrada y 1,121 de salida). En `agent_framework` tardó 11,622 ms hasta el primer texto y 11,816 ms en completar (3,019 tokens de entrada y 1,033 de salida). Esto confirmó la lista blanca de la skill: el bloqueo no pertenece a `cards` y no estuvo disponible al modelo.
+
+### Diferencias entre los dos runtimes
+
+`react` conserva el ciclo ReAct propio y `agent_framework` usa Microsoft Agent Framework sobre Foundry. Ambos reciben las mismas herramientas filtradas, el mismo `run_tool` y el mismo límite `max_tool_rounds`; la aprobación sensible sigue fuera del framework.
+
+En la conversación real, ambos llegaron a la misma línea máxima y conservaron la memoria de trabajo. `agent_framework` fue más rápido en la consulta inicial (13,892 ms frente a 14,995 ms al primer texto), pero `react` fue más rápido en la consulta de línea (15,629 ms frente a 18,022 ms) y en la acción sensible (24,179 ms frente a 27,260 ms). Los tiempos varían por llamada y no muestran una ventaja estable de un runtime.
+
+### Conclusión
+
+Se realizó la corrida interactiva real con Foundry `gpt-5-mini`, Azure AI Search (`idx-team-07`, 29 chunks) y el MCP local de tarjetas. Ambos runtimes ejecutaron `get_cards`, `get_credit_line` y dejaron `request_credit_line_increase` pendiente de aprobación sin ejecutar la acción. La pregunta «¿Cuál era la línea máxima de mi tarjeta?» respondió S/ 4,500.00 sin llamar una tool. La prueba de bloqueo fue rechazada por fuera de alcance en ambos casos.
