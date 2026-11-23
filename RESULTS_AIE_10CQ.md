@@ -112,14 +112,14 @@ No hay metas incumplidas que requieran un cambio. Hechos es el resultado más aj
 
 ## Sesión 6 — Tools del MCP en el chat
 
-Dominio: `cards`. MCP: el mock (`http://127.0.0.1:8200/mcp`) y, si ya tienes `MCP_URL`, el compartido (`bank-mcp`).
+Dominio: `cards`. MCP: el mock (`http://127.0.0.1:8200/mcp`) y el compartido (`https://ca-mcp-server.icybush-2ea2dfc1.eastus2.azurecontainerapps.io/mcp`).
 
 ### Tools de tu dominio
 
 | MCP | Tools que lista `dev/mcp/mcp_tools.py` |
 |---|---|
 | Mock | get_cards, get_credit_line, request_credit_line_increase |
-| Compartido | no obtenido por falta de informacion en plataforma |
+| Compartido | get_cards, get_credit_line, request_credit_line_increase |
 
 ### Conversación en `dev/chat.py` (paso 12)
 
@@ -128,7 +128,7 @@ Dominio: `cards`. MCP: el mock (`http://127.0.0.1:8200/mcp`) y, si ya tienes `MC
 | Consulta de tu dominio (aumento de línea) | `Soy CUS-1001, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000?` | `request_credit_line_increase(card_id=CRD-2001, requested_limit=4000)` | La tool indicó que no se ejecutó y quedó pendiente de aprobación. El agente informó que la solicitud quedó pendiente y explicó requisitos y plazos. | 15,213–25,576 / 15,499–26,527 |
 | Acción confirmada | `Sí, solicítalo, el motivo es mayor gasto familiar` | `request_credit_line_increase(card_id=CRD-2001, requested_limit=4000)` | La tool volvió a indicar que no se ejecutó y quedó pendiente de aprobación. El agente respondió que había solicitado el aumento, pero no hubo registro efectivo según el resultado de la tool. | 25,392–26,037 / 25,821–26,229 |
 | Sin tool que la resuelva | `¿Cuál es el saldo de mi cuenta de ahorros?` | Ninguna | En un intento hubo error 502 al obtener el token de Entra ID; en los siguientes el agente respondió `out_of_scope` y aclaró que no puede consultar saldos de ahorro. | 10,455–20,102 / 10,699–20,904 (respuestas `out_of_scope`) |
-| Tool de otro dominio | No se pudo probar. | No se pudo determinar. | La página de la plataforma no proporciona los datos necesarios para conectarnos al MCP compartido; por eso no se pudo probar. | — |
+| Tool de otro dominio | No se pudo probar. | No disponible en la lista consultada. | `tools/list` del MCP compartido devolvió tres tools, todas del dominio `cards`; no había una tool de otro dominio para probar. | — |
 
 ### ¿El modelo inventó algún dato cuando ninguna tool lo resolvía?
 
@@ -136,4 +136,4 @@ No, directamente lo marco como fuera del scope que es lo ideal.
 
 ### Conclusión
 
-En general, las tools del dominio de tarjetas se activaron cuando correspondía y las consultas de saldo de ahorro se rechazaron como fuera de alcance. Lo que sí noté es que, aunque la tool no ejecutó el aumento, el agente respondió como si ya lo hubiera solicitado; habría que ajustar ese mensaje para que no confirme una acción pendiente. No pude validar el MCP compartido porque faltan los datos de conexión en la plataforma.
+En general, las tools del dominio de tarjetas se activaron cuando correspondía y las consultas de saldo de ahorro se rechazaron como fuera de alcance. También confirmé que el MCP compartido expone las mismas tres tools de tarjetas; no pude probar una tool de otro dominio porque no aparece en la lista. Lo que sí noté es que, aunque la tool no ejecutó el aumento, el agente respondió como si ya lo hubiera solicitado; habría que ajustar ese mensaje para que no confirme una acción pendiente.
