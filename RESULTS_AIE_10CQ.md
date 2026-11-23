@@ -164,3 +164,36 @@ En la conversación real, ambos llegaron a la misma línea máxima y conservaron
 ### Conclusión
 
 Se realizó la corrida interactiva real con Foundry `gpt-5-mini`, Azure AI Search (`idx-team-07`, 29 chunks) y el MCP local de tarjetas. Ambos runtimes ejecutaron `get_cards`, `get_credit_line` y dejaron `request_credit_line_increase` pendiente de aprobación sin ejecutar la acción. La pregunta «¿Cuál era la línea máxima de mi tarjeta?» respondió S/ 4,500.00 sin llamar una tool. La prueba de bloqueo fue rechazada por fuera de alcance en ambos casos.
+
+## Sesión 8 — Aprobación humana, validación y reintentos
+
+Dominio: `cards` (paso 6).
+
+| Caso | Runtime | Mensaje | Qué pasó | Resultado o ID |
+|---|---|---|---|---|
+| Aprobar | `agent_framework` | Solicitud de aumento a S/ 4,000 para `CRD-2001` | El asesor respondió `s`; la aprobación permitió que la herramienta se ejecutara una sola vez y registrara la acción | `CLI-9001`, estado `registered` |
+| Rechazar | `react` | Solicitud de aumento a S/ 4,000 para `CRD-2001` | El asesor respondió `n` o respondió por texto que rechazaba la acción; el flujo marcó la solicitud como rechazada y no la ejecutó | `rechazada`, sin ID de registro |
+| Error de negocio (`CUS-9999`) | `react` | Soy CUS-9999, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000? | `get_cards(customer_id=CUS-9999)` devolvió el error de negocio «El cliente CUS-9999 no existe»; no hubo reintento ni continuación hacia `get_credit_line` o `request_credit_line_increase` | Error MCP: cliente inexistente |
+| Input inválido | No observado | No apareció una prueba de argumentos inválidos en la terminal mostrada | El MCP y el agente no recibieron una llamada inválida en esta corrida, por lo que no se obtuvo un resultado observable | Sin dato de prueba |
+
+### La trayectoria en el log
+
+```text
+trayectoria 89207339-f771-4e07-95d0-227afcd1d624: get_cards ok → get_credit_line ok → request_credit_line_increase pending_approval → respuesta sensitive_action
+trayectoria 89207339-f771-4e07-95d0-227afcd1d624: decisión del asesor → request_credit_line_increase rejected
+trayectoria e66cf0bf-b639-4eaa-b579-4445e1899288: get_cards ok → get_credit_line ok → respuesta sensitive_action
+trayectoria e66cf0bf-b639-4eaa-b579-4445e1899288: request_credit_line_increase pending_approval → respuesta sensitive_action
+trayectoria e66cf0bf-b639-4eaa-b579-4445e1899288: decisión del asesor → request_credit_line_increase ok
+trayectoria 3ee7262e-6e04-4922-bd70-e566ac3062d4: get_cards ok → get_credit_line ok → respuesta sensitive_action
+trayectoria 3ee7262e-6e04-4922-bd70-e566ac3062d4: request_credit_line_increase pending_approval → respuesta sensitive_action
+trayectoria 3ee7262e-6e04-4922-bd70-e566ac3062d4: decisión del asesor → request_credit_line_increase rejected
+trayectoria cb5accfb-b054-4f86-8e13-68490e206fa3: get_cards error → respuesta sensitive_action
+```
+
+### ¿Algo se ejecutó sin que lo aprobaras?
+
+No. Las solicitudes de `request_credit_line_increase` quedaron como `pendiente_aprobacion` y no llegaron a ejecutarse hasta que el asesor decidió. La aprobación sí permitió el registro efectivo como `CLI-9001`; el rechazo dejó la acción sin registrar.
+
+### Conclusión
+
+La protección funciona: una acción sensible nunca se ejecuta al formularse la solicitud, sino que espera una decisión humana. La aprobación produjo `CLI-9001` con estado `registered`, mientras que los rechazos devolvieron `rechazada` y no crearon ningún registro. El error `CUS-9999` fue detectado por el MCP como un problema de negocio y el agente informó que el cliente no existe, sin pedir ni ejecutar una acción sensible; no se observó un caso de input inválido ni una prueba visible de reintentos en la conversación mostrada.
