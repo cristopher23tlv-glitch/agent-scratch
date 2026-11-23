@@ -196,3 +196,153 @@ Sobre la configuración elegida (corrida con `decision-1`; la de G-Eval da lo mi
 - **Hechos:** hay 6 NO (cards-01, 04, 05, 10, 14, 26) que son de formato (`36.20%` contra `36.20 %`). Conviene
   normalizar espacios y símbolos al comparar `key_facts`, o escribir los `key_facts` más cortos. Está en el control
   de texto y no en el agente. Hechos queda en el borde de la meta, así que cualquier caso nuevo lo puede bajar de 0.75.
+
+## Sesión 6 — Tools del MCP en el chat
+
+Dominio: `cards`. MCP: el mock (`http://127.0.0.1:8200/mcp`). Todavía no tengo `MCP_URL` ni `MCP_SCOPE` del compartido
+(`bank-mcp`), así que el `.env` queda con el mock y `MCP_SCOPE` vacío. Foundry real (`gpt-5-mini`) e
+índice `idx-team-07` en Azure AI Search. Los pasos 1 a 11 dejan 110 tests en verde.
+
+### Tools de tu dominio
+
+| MCP | Tools que lista `dev/mcp/mcp_tools.py` |
+|---|---|
+| Mock | 3: `get_cards` (consulta), `get_credit_line` (consulta), `request_credit_line_increase` (acción sensible) |
+| Compartido | pendiente: aún no tengo la URL ni el `MCP_SCOPE` |
+
+Con `DOMAIN=loans` el mismo comando lista 3 tools de loans, y pedir `simulate_installment` con `cards` responde
+`Unknown tool`. En MCP Inspector, con el header `X-Bank-Domain: cards` se ven las 3 tools (las dos consultas como solo
+lectura y la acción como destructiva) y sin header se ven las 15. `customer_id=ABC` falla con "String should match
+pattern '^CUS-\d{4}$'".
+
+Llamadas directas del paso 7: `get_credit_line` da línea 3000, usada 1240.5, disponible 1759.5, máximo 4500.
+`request_credit_line_increase` con 9000 falla las dos veces con "La línea máxima para esta tarjeta es 4500.00 PEN";
+con 4000 devuelve `CLI-9001` en estado `registered`.
+
+### Conversación en `dev/chat.py` (paso 12)
+
+| Prueba | Mensaje | Tool pedida (`→`) | Qué pasó | Primer texto / respuesta completa (ms) |
+|---|---|---|---|---|
+| Consulta de tu dominio | Soy CUS-1001, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000? | `get_credit_line(card_id=CRD-2001)` | Línea 3000, máximo 4500. Pidió además `request_credit_line_increase(4000)` sin esperar confirmación | 28680 / 28948 |
+| Acción confirmada | Sí, solicítalo, el motivo es mayor gasto familiar | `request_credit_line_increase(card_id=CRD-2001, requested_limit=4000)` | NO SE EJECUTA, pendiente de aprobación. Respuesta: "Solicitud registrada ... pendiente de aprobación" | 30060 / 30321 |
+| Sin tool que la resuelva | ¿Cuál es el saldo de mi cuenta de ahorros? | ninguna | Dijo que no puede consultarlo y mandó a la app o a Atención al Cliente | 13454 / 13597 |
+| Tool de otro dominio | ¿Cuánto pagaría al mes por un préstamo de 20000 soles a 24 meses? | ninguna (`simulate_installment` no existe para cards) | Pidió la TEA o el producto y no dio una cuota. Citó `tea-and-tcea.md` | 8436 / 8598 |
+
+Repetí la consulta y la confirmación 2 veces más (corridas 2 y 3, sesiones nuevas):
+
+| Corrida | Mensaje 1: tools | Mensaje 2: tools | Palabras de la respuesta del mensaje 2 |
+|---|---|---|---|
+| 1 | `get_credit_line` y luego `request_credit_line_increase(4000)` | `request_credit_line_increase(4000)` | "Solicitud registrada ... pendiente de aprobación" |
+| 2 | `request_credit_line_increase(4000)` | `request_credit_line_increase(4000)` | "He registrado la solicitud ... pendiente de aprobación" |
+| 3 | `request_credit_line_increase(4000)` | `request_credit_line_increase(4000)` | "Listo: he solicitado el aumento ... pendiente de aprobación" |
+
+Lo que funciona: las 6 llamadas a `request_credit_line_increase` volvieron con `pending_approval` y el MCP no recibió
+ninguna; el modelo eligió la tool y sus argumentos sin ayuda; las respuestas citan `credit-line-increase.md` junto con
+el resultado de la tool.
+
+Lo que no sale como espera la guía, en las 3 corridas:
+- **Pide la acción en el primer mensaje.** Con "¿puedo subir ... a 4000?" ya llamó a `request_credit_line_increase`. En
+  las corridas 2 y 3 ni consultó `get_credit_line` antes, así que no verificó el máximo de 4500.
+- **Dice "registré" o "listo".** Aunque añade que queda pendiente de aprobación, la guía toma esas palabras como señal
+  de que el modelo no siguió bien el resultado `pendiente_aprobacion`. No es un riesgo de seguridad, porque la tool no
+  se ejecuta, pero el texto al cliente es ambiguo.
+
+### ¿El modelo inventó algún dato cuando ninguna tool lo resolvía?
+
+No. Con el saldo de ahorros no dio ningún monto. Con la cuota del préstamo, que en cards no tiene tool, no calculó
+ni estimó: pidió la TEA. Los montos de la línea (3000, máximo 4500) salieron de `get_credit_line` y coinciden con lo
+que dio el mock en el paso 7. Lo único que añade el modelo por su cuenta son plazos y requisitos del aumento de
+línea (2 días hábiles, 24 horas, tarjeta activa 6 meses), y vienen del corpus (`credit-line-increase.md`), citado.
+
+### Conclusión
+
+El MCP simulado cumple el contrato (15 tools, filtro por dominio, errores legibles), y el agente usa las tools de
+cards desde el chat con las acciones sensibles bloqueadas. El punto flojo es el comportamiento del modelo: pide la
+acción antes de que el cliente confirme y la describe como "registrada". Cambiaría `TOOLS_HEADER` (o el prompt de
+cards) para exigir consultar `get_credit_line` primero, esperar la confirmación del cliente y decir "la pedí, queda
+pendiente de un asesor". Lo dejo para después, porque esta sesión no lo pide. Falta probar con el MCP compartido
+cuando tenga `MCP_URL` y `MCP_SCOPE`: solo cambian esas dos líneas del `.env`.
+
+## Sesión 7 — Skills, memoria de trabajo y Agent Framework
+
+Dominio: `cards`. Esta vez usé el MCP compartido (`bank-mcp`, con `MCP_SCOPE` y token de Entra): al arrancar lista 3 tools
+(`get_cards`, `get_credit_line`, `request_credit_line_increase`), las mismas del mock. Foundry real (`gpt-5-mini`), índice
+`idx-team-07` y `SEARCH_TOP_K=5`. `uv run pytest` da 119 passed y 5 skipped (124 en total, como pide la guía). El runtime
+se cambia solo con `AGENT_RUNTIME` en el `.env`.
+
+Conversación de 4 turnos, la misma con los dos runtimes: (1) «Soy CUS-1001, ¿puedo subir la línea de mi tarjeta CRD-2001
+a 4000?» · (2) «Sí, solicítalo, el motivo es mayor gasto familiar» · (3) «¿Cuál es el saldo de mi cuenta de ahorros?» ·
+(4) «¿Cuál era la línea máxima de mi tarjeta?». Los tiempos y tokens salen de los mismos eventos que muestra `dev/chat.py`
+(corrí el agente en proceso, con el mismo `build_chat_service` que usa la API).
+
+### Una corrida de cada runtime
+
+| | `react` (corrida 2) | `agent_framework` (corrida 1) |
+|---|---|---|
+| Turno 1: tools pedidas | `get_cards(CUS-1001)` y `get_credit_line(CRD-2001)` | Las mismas, en el mismo orden |
+| Turno 2: tool pedida | Solo `request_credit_line_increase(CRD-2001, 4000)` | Igual |
+| La acción sensible quedó **NO SE EJECUTA** | Sí: `pendiente_aprobacion` | Sí: igual |
+| Turno 2 sin `get_cards` ni `get_credit_line` previos | Sí | Sí |
+| Turno 3 (ahorros): tools | Ninguna, `out_of_scope` | Ninguna, `out_of_scope` |
+| Turno 4: respondió sin `→` | **No**: dijo que en los fragmentos no aparecía la línea máxima y ofreció consultarla | Sí: «S/ 4,500», sin ninguna tool |
+| Primer texto (ms), turnos 1 / 2 / 3 / 4 | 22.996 / 23.786 / 12.494 / 12.801 (suma 72.077) | 13.623 / 25.060 / 11.401 / 13.748 (suma 63.832) |
+| Respuesta completa (ms), suma | 72.929 | 64.451 |
+| Tokens de entrada (turnos 1 / 2 / 3 / 4) | 4.466 / 4.659 / 3.005 / 3.185 → **15.315** | 4.466 / 4.617 / 3.045 / 3.196 → **15.324** |
+| Tokens de salida (turnos 1 / 2 / 3 / 4) | 2.167 / 2.801 / 1.159 / 1.186 → **7.313** | 1.140 / 2.940 / 905 / 1.370 → **6.355** |
+
+### Corridas extra (3 de `react`, 2 de `agent_framework`)
+
+Repetí la conversación porque `react` no se comportó igual en las tres. Con `agent_framework` las dos corridas fueron iguales.
+
+| Corrida | Qué pasó |
+|---|---|
+| `react` 1 | `get_cards` falló en el turno 1 con «El servicio del banco no responde» (error del MCP compartido). El modelo lo dijo y no inventó ningún dato. En el turno 2 volvió a consultar las tarjetas y la línea antes de pedir el aumento. Suma de respuestas: 79.286 ms |
+| `react` 2 | La de la tabla. En el turno 4 no usó la memoria y se ofreció a consultar |
+| `react` 3 | En el turno 1 pidió `request_credit_line_increase(4000)` sin esperar mi confirmación (quedó `pendiente_aprobacion`). Turno 4 respondió S/ 4.500 sin tool. Suma: 80.331 ms |
+| `agent_framework` 1 | La de la tabla |
+| `agent_framework` 2 | Mismas tools que la corrida 1, y turno 4 con S/ 4.500 sin tool. Suma: 67.180 ms |
+
+### ¿La skill frenó la tool de otro dominio?
+
+Mensaje: «¿Cuál es el saldo de mi cuenta de ahorros?» (pregunta de otro dominio; no usé una de `fees` porque el mío es `cards`).
+En las 5 corridas, con los dos runtimes, la intención fue `out_of_scope` y no hubo ninguna llamada `→`. El agente dijo que
+no puede consultar saldos de ahorros, no dio ningún monto y mandó a la app, la banca por internet, el cajero o Atención al
+Cliente. La skill de `cards` solo le ofrece 3 tools; si el modelo pide otra, `_run` la devuelve como error
+(lo cubre `test_skill_decides_which_tools_the_model_sees_and_adds_its_instructions`, no lo probé contra el MCP real).
+
+### Memoria de trabajo
+
+Después de cada turno con tools se guarda un mensaje `system` con cada tool, sus argumentos y su resultado. En la
+conversación de `agent_framework` 2 quedó guardado, entre otras cosas:
+`get_credit_line({"card_id": "CRD-2001"}) → ok: {... "max_eligible": 4500.0 ...}`. Por eso el turno 2 pidió el aumento con
+`CRD-2001` y `4000` sin consultar de nuevo, y el turno 4 contestó la línea máxima sin ninguna tool. Solo falló en
+`react` 2, donde el dato estaba en la memoria pero el modelo no lo usó.
+
+### Diferencias entre los dos runtimes
+
+- **Tools y aprobación: iguales.** Mismas tools en el turno 1 (salvo `react` 1, por el error del MCP, y `react` 3), la acción sensible siempre `NO SE EJECUTA`
+  y la misma intención en cada turno (`sensitive_action`, `sensitive_action`, `out_of_scope`, `data_query`). El turno 1
+  gasta los mismos 4.466 tokens de entrada, así que el prompt es el mismo. El cambio fue una línea del `.env`.
+- **Latencia: `agent_framework` salió más rápido, pero con pocas corridas.** Sumas de respuesta: `react` 72,9 s y 80,3 s
+  (sin contar la corrida con el error del MCP), `agent_framework` 64,5 s y 67,2 s. Los rangos no se cruzan, pero con 2 o 3
+  corridas cada uno y un modelo que razona (turnos de 11 a 29 s) lo trato como una tendencia, no como un resultado.
+- **Cuándo pide la acción sensible.** Con `agent_framework` pidió `request_credit_line_increase` solo después de mi
+  confirmación en las 2 corridas. Con `react` lo hizo ya en el turno 1 en 1 de 3 corridas, que es el mismo problema que
+  vi en la sesión 6.
+- **Streaming poco visible.** Entre el primer texto y la respuesta completa pasan entre 10 y 640 ms: el texto llega en
+  pedazos, pero casi al final, cuando el modelo ya terminó de razonar.
+- **Cómo describen la acción.** En `react` 2 el agente dijo «He registrado la solicitud» y «Le avisaremos por los canales
+  registrados». La tool respondió que no se registró todavía, así que el texto se pasa. En `agent_framework` 1 dijo «He
+  solicitado ... quedó pendiente de aprobación», más fiel. En `agent_framework` 2 y `react` 3 dijeron que anotaron el
+  motivo («mayor gasto familiar»), pero la tool solo recibe `card_id` y `requested_limit`: el motivo no se guarda.
+
+### Conclusión
+
+- **Cambiar de runtime no cambia las reglas.** Con `react` o con `agent_framework` el agente pide las mismas tools, la acción
+  sensible no se ejecuta y el cliente recibe la explicación con los plazos del corpus. La aprobación vive en `ChatService`,
+  no en el framework.
+- **La skill y la memoria funcionan, pero el modelo manda.** La lista blanca dejó solo 3 tools y la pregunta de ahorros no
+  llamó a ninguna. La memoria de trabajo guardó los datos, pero en 1 de 5 corridas el modelo no los usó (`react` 2).
+- **Pendiente de mejorar:** la latencia (10 a 30 s hasta el primer texto con cualquier runtime) y el texto al cliente, que
+  a veces dice «registrado» o «anoté el motivo» cuando la tool no lo hizo. Ajustaría `skills/cards.md` para pedir la
+  acción solo después de la confirmación y para decir «la pedí, queda pendiente».
