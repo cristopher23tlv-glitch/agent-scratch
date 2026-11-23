@@ -192,3 +192,49 @@ Rendimiento y consumo: react fue ligeramente más rápido en promedio (~2.8 s me
 ### Conclusión
 
 Aprendí que ambos runtimes protegen igual las acciones sensibles y aprovechan la memoria de trabajo sin reconsultar tools. La diferencia clave está en cómo orquestan: react se siente más ágil y conversacional, mientras que agent_framework aporta más estructura y rigor normativo a cambio de un poco más de latencia.
+
+
+## Sesión 8 — Aprobación humana, validación y reintentos
+
+Dominio: `cards` (paso 6).
+
+| Caso | Runtime | Mensaje | Qué pasó | Resultado o ID |
+|---|---|---|---|---|
+| Aprobar | `agent_framework` | "Soy CUS-1001, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000?" → "Sí, solicítalo, el motivo es mayor gasto familiar" | Consultó tarjeta y línea, pidió confirmación, dejó la solicitud pendiente y al aprobarla (s) se registró. | CLI-9001 (registered) |
+| Rechazar | `react` | "Soy CUS-1001, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000?" → "Sí, solicítalo, el motivo es mayor gasto familiar" | Falló get_cards al inicio; al confirmar consultó línea, dejó pendiente la acción y el asesor la rechazó (n). | rechazada (no se ejecutó) |
+| Error de negocio (`CUS-9999`) | react | "Soy CUS-9999, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000?" | Falló get_cards con error de servicio; igual consultó get_credit_line y pidió confirmación para seguir. | Pide confirmación (sin ID aún) |
+| Input inválido | react | "Mi número de cliente es 1001, ¿qué comisiones me cobraron?" | No llamó a ninguna tool porque no tiene herramienta para comisiones y redirigió a la app/banca por internet. | Sin tools (data_query) |
+
+### La trayectoria en el log
+
+```
+APROBAR
+get_cards ok → get_credit_line ok → respuesta sensitive_action
+  → request_credit_line_increase pending_approval → respuesta sensitive_action
+  → decisión del asesor → request_credit_line_increase ok
+```
+
+```
+RECHAZAR
+get_cards error → respuesta sensitive_action
+  → get_credit_line ok → request_credit_line_increase pending_approval → respuesta sensitive_action
+  → decisión del asesor → request_credit_line_increase rejected
+```
+
+```
+ERROR DE NEGOCIO
+get_cards error → get_credit_line ok → respuesta sensitive_action
+```
+
+``` 
+INPUT INVÁLIDO
+sin tools → respuesta data_query
+```
+
+### ¿Algo se ejecutó sin que lo aprobaras?
+
+No. Las consultas de lectura (get_cards, get_credit_line) corrieron solas, pero la acción sensible (request_credit_line_increase) siempre se frenó en pendiente_aprobacion hasta que confirmé como cliente y aprobé (s) como asesor.
+
+### Conclusión
+
+Aprendí cómo funciona el freno human-in-the-loop en acciones críticas: el agente nunca registra cambios por su cuenta sin doble validación (cliente + asesor). Además, vi que si una herramienta falla o el pedido está fuera de dominio, el agente maneja el error sin romperse ni inventar acciones.
