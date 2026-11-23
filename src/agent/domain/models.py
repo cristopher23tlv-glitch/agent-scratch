@@ -143,6 +143,16 @@ class AnswerDelta(BaseModel):
     text: str
 
 
+class Skill(BaseModel):
+    """Como trabaja el agente en su dominio: instrucciones, tools visibles y limite de vueltas."""
+
+    name: str
+    instructions: str
+    tools: list[str]
+    max_tool_rounds: int = Field(ge=1)
+
+# lo que entrega AgentRuntime.run
+type RuntimeEvent = IntentDetected | AnswerDelta | ToolCall | ToolResult | ModelResult
 # lo que entrega ChatModel.stream; el último es ModelResult (respondió) o ToolRequest (pidió tools)
 type ModelEvent = IntentDetected | AnswerDelta | ModelResult | ToolRequest
 # lo que entrega ChatService.handle_stream: cada tool pedida y su resultado, después la respuesta; el último es AgentTurn
