@@ -3,7 +3,9 @@
 Agente conversacional bancario del **Banco Demo** (ficticio), construido paso a paso en el Workshop IA Engineers.
 Cada equipo lo adapta a su dominio y lo hace crecer sesión a sesión hasta la v1.0.
 
+
 ## Objetivo
+
 
 Un agente que atiende a los clientes del banco por consola y por API:
 
@@ -30,7 +32,9 @@ Dominios: `fraud`, `fees`, `cards`, `loans` y `support` (variable `DOMAIN`).
 
 Esta copia está en `main` (el arquetipo de partida). Para saber en qué versión está la tuya: `git describe --tags`.
 
+
 ## Requisitos
+
 
 | Herramienta | Desde |
 |---|---|

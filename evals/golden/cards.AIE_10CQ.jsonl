@@ -1,0 +1,1 @@
+{"id": "cards-AIE_10CQ-31", "type": "answerable", "history": [], "question": "Si aprueban el aumento de línea, ¿cuándo queda disponible la nueva línea?", "expected_intent": "product_question", "expected_sources": ["credit-line-increase.md"], "forbidden_sources": [], "key_facts": ["24 horas"]}

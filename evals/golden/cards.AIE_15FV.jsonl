@@ -1,0 +1,1 @@
+{"id": "cards-AIE15FV", "type": "expired", "history": [], "question": "¿Cuánto cuesta la membresía anual de la Tarjeta Platinum?", "expected_intent": "product_question", "expected_sources": ["platinum-card-sheet.html", "cards-comparison.csv"], "forbidden_sources": ["platinum-card-sheet-2023.md"], "key_facts": ["480"]}
