@@ -197,3 +197,35 @@ No. Las solicitudes de `request_credit_line_increase` quedaron como `pendiente_a
 ### Conclusión
 
 La protección funciona: una acción sensible nunca se ejecuta al formularse la solicitud, sino que espera una decisión humana. La aprobación produjo `CLI-9001` con estado `registered`, mientras que los rechazos devolvieron `rechazada` y no crearon ningún registro. El error `CUS-9999` fue detectado por el MCP como un problema de negocio y el agente informó que el cliente no existe, sin pedir ni ejecutar una acción sensible; no se observó un caso de input inválido ni una prueba visible de reintentos en la conversación mostrada.
+
+## Sesión 9 — Despliegue en Azure
+
+Equipo: `team-07`. Dominio: `cards`.
+
+| Comprobación | Resultado |
+|---|---|
+| Tests en el contenedor (paso 3) | `docker run --rm agent:test`: 139 passed, 5 skipped (13.08 s). También se ejecutó `uv run pytest`: 140 passed, 4 skipped. |
+| Acción aprobada después de reiniciar `uvicorn` (paso 2, Cosmos DB) | **Comprobado:** la solicitud quedó `pending_approval`; se detuvo y reinició `uvicorn`; luego se aprobó y devolvió `status: registered` (`CLI-9001`). La misma trayectoria aparece en los logs antes y después del reinicio. |
+| Imagen desplegada (`team-07/agent:<sha>`) | `team-07/agent:ea2cd64af0170a1be696c750df13ee371cb83511`. |
+| Revisión activa y duración del job `deploy` | `ca-agent-chat-07--0000002`, estado `Healthy`; al consultar estaba `ScaledToZero`. No se registró la duración del job. |
+| `/health` del agente desplegado | `ok`, confirmado por `uv run python dev/chat.py`. El primer intento agotó el tiempo de espera; el segundo respondió correctamente. |
+| Respuesta con `Fuentes:` contra Azure (y su tiempo en ms) | En la prueba local con AI Search (`idx-team-07`) respondió con fuentes en 37 527 ms y 18 321 ms. No se registró una consulta RAG a través de la URL desplegada de la Container App. |
+| Acción aprobada contra Azure, con su `resultado:` | La herramienta respondió `registered` después de aprobar la solicitud. |
+
+### Qué pone Azure y qué pone la imagen
+
+La Container App tiene estas variables: `APPLICATIONINSIGHTS_CONNECTION_STRING`, `AZURE_CLIENT_ID`, `AZURE_OPENAI_ENDPOINT`, `COSMOS_CONTAINER`, `COSMOS_DATABASE`, `COSMOS_ENDPOINT`, `FOUNDRY_PROJECT_ENDPOINT`, `KEY_VAULT_URI`, `MCP_SCOPE`, `MCP_URL`, `SEARCH_ENDPOINT`, `SEARCH_INDEX` y `TEAM_ID`. `APPLICATIONINSIGHTS_CONNECTION_STRING` usa una referencia segura a un secret; las demás variables consultadas no tienen `secretRef`. No se leyeron ni copiaron valores.
+
+La imagen configura `DOMAIN`, `FOUNDRY_AUTH_PROVIDER`, `KNOWLEDGE_BASE` y `AGENT_RUNTIME`, según `devops/DESPLIEGUE.md`.
+
+### Problemas que encontré y cómo los resolví
+
+- La consulta inicial usó el nombre de Container App `ca-agent-chat-NN` y devolvió `AuthorizationFailed`; al consultar la app real `ca-agent-chat-07` sí se obtuvo el host.
+- PowerShell no reconoce `export`; definí `AGENT_URL` y `AGENT_SCOPE` con `$env:AGENT_URL` y `$env:AGENT_SCOPE`.
+- El primer health check agotó el tiempo de espera; al repetir `uv run python dev/chat.py`, `/health` respondió `ok` y pude aprobar la acción.
+- En el arranque local, `uvicorn` confirmó la configuración `Cosmos DB workshop/team-07`, Azure AI Search (`idx-team-07`, 29 chunks) y el MCP local. La acción pendiente sobrevivió al reinicio: la decisión del asesor se procesó y quedó `registered`.
+- Una consulta de solo lectura a Azure devolvió un error transitorio de conexión; al reintentar se obtuvieron el tag, el estado de la revisión y los nombres/referencias de variables.
+
+### Conclusión
+
+Las pruebas confirman que el agente local usó Cosmos DB `workshop/team-07`: una acción sensible sobrevivió al reinicio de `uvicorn` y, al aprobarla, quedó `registered`. La búsqueda en AI Search (`idx-team-07`) devolvió respuestas con fuentes. En Azure, la Container App respondió `/health`, la acción aprobada se registró y la revisión consultada estaba `Healthy`. El contenedor superó las pruebas locales con 139 aprobadas y 5 omitidas. La configuración de Application Insights usa una referencia segura a un secret. No se creó ningún commit, push ni pull.
