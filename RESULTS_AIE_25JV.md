@@ -276,3 +276,56 @@ No. En los dos runtimes, `request_credit_line_increase` salió siempre como `pen
 - **El error de negocio se maneja bien:** el agente se detuvo, no inventó datos de `CUS-9999` y pidió el código correcto. Un detalle: pidió también «los últimos 4 dígitos» aunque el cliente ya había dado `CRD-2001`.
 - **El texto del turno 2 se adelanta a la decisión.** Antes de la aprobación, `react` dijo «Solicitud registrada» y `agent_framework` «He solicitado…», «Te aviso cuando haya novedades» y «motivo: mayor gasto familiar» (la tool solo recibe `card_id` y `requested_limit`). Lo correcto era decir «pendiente de aprobación». Con la aprobación, `agent_framework` sí fue fiel («registrada, ID CLI-9001, no se ha aplicado»).
 - **Reintentos:** `get_cards` falló con «El servicio del banco no responde» en los dos runtimes y no hubo ningún reintento: el agente siguió con `get_credit_line`. En `agent_framework`, `get_cards` tardó 69 s (el primer texto salió a los 105 s); en `react` el turno entero tardó 43 s.
+
+
+## Sesión 9 — Despliegue en Azure
+
+Equipo: `team-07`. Dominio: `cards`.
+
+| Comprobación | Resultado |
+|---|---|
+| Tests en el contenedor (paso 3) | `docker run --rm agent:test`: 139 passed, 5 skipped (13,08 s). También `uv run pytest`: 140 passed, 4 skipped. |
+| Acción aprobada después de reiniciar `uvicorn` (paso 2, Cosmos DB) | **Comprobado.** La solicitud quedó `pending_approval`; se detuvo y reinició `uvicorn`; luego se aprobó y devolvió `status: registered` (`CLI-9001`). La misma trayectoria aparece en los logs antes y después del reinicio. |
+| Imagen desplegada (`team-07/agent:<sha>`) | `team-07/agent:ea2cd64af0170a1be696c750df13ee371cb83511`. Container App `ca-agent-chat-07` (grupo `rg-team-07`), contenedor `agent-chat` |
+| Revisión activa y duración del job `deploy` | Revisión `ca-agent-chat-07--0000002` (réplica `ca-agent-chat-07--0000002-667945bdfb-dkvh9`), estado `Healthy`; al consultarla estaba `ScaledToZero`. La duración del job `deploy` no se registró |
+| `/health` del agente desplegado | `ok`. En el log: `GET /health HTTP/1.1 200 OK`. Los dos primeros intentos de `dev/chat.py` fallaron con `TimeoutError` a los 30 s; el tercero respondió `ok` |
+| Respuesta con `Fuentes:` contra Azure (y su tiempo en ms) | En la prueba local con AI Search (`idx-team-07`) respondió con fuentes en 37.527 ms y 18.321 ms. No se registró una consulta RAG a través de la URL desplegada: las respuestas de esa URL (`hola`, `greeting`, 3.041 / 3.128 ms; «¿cuáles son mis límites?», `data_query`, 7.427 / 7.626 ms) no llevan fuentes |
+| Acción aprobada contra Azure, con su `resultado:` | `registered` después de aprobar la solicitud. En la conversación con la URL desplegada, `get_cards` con `CUS-0001` devolvió «El servicio del banco no responde; intenta de nuevo en unos minutos» (19.670 / 19.874 ms, 3.573 tokens de entrada, 725 de salida) |
+
+URL del agente: `https://ca-agent-chat-07.icybush-2ea2dfc1.eastus2.azurecontainerapps.io`. La autenticación está activa (Entra ID, `AGENT_SCOPE=api://<appId>/.default`).
+
+Arranque observado en el log: `Foundry auth provider: entra_id`, base de conocimiento `azure_search` (índice `idx-team-07`, 29 chunks), almacén de conversaciones Cosmos DB `workshop/team-07`, MCP compartido con 3 tools (`get_cards`, `get_credit_line`, `request_credit_line_increase`) y runtime `agent_framework`.
+
+### Qué pone Azure y qué pone la imagen
+
+**Azure** (variables de entorno del Container App, solo nombres):
+
+- Identidad y observabilidad: `AZURE_CLIENT_ID`, `APPLICATIONINSIGHTS_CONNECTION_STRING`, `TEAM_ID`.
+- Modelo: `FOUNDRY_PROJECT_ENDPOINT`, `AZURE_OPENAI_ENDPOINT`.
+- Búsqueda (RAG): `SEARCH_ENDPOINT`, `SEARCH_INDEX`.
+- Conversaciones: `COSMOS_ENDPOINT`, `COSMOS_DATABASE`, `COSMOS_CONTAINER`.
+- Tools: `MCP_URL`, `MCP_SCOPE`.
+- Secretos: `KEY_VAULT_URI`.
+
+No aparece ninguna clave en la lista: el acceso a Foundry, Search y Cosmos va con Entra ID (`AZURE_CLIENT_ID`) y lo que sea secreto se lee de Key Vault. Solo `APPLICATIONINSIGHTS_CONNECTION_STRING` usa una referencia segura a un secret (`secretRef`); las demás variables no tienen `secretRef`. No se leyeron ni copiaron valores.
+
+
+### Problemas que encontraste y cómo los resolviste
+
+| Problema | Qué se vio | Causa probable / resolución |
+|---|---|---|
+| `/health` agotó el tiempo dos veces | `TimeoutError: The read operation timed out` a los 30 s en `check_health()` | Arranque en frío. El log muestra el arranque entre 15:54:46 y 15:55:14 (~28 s: Search, Cosmos y la conexión al MCP). El tercer intento respondió `ok`. No lo resolví: reintenté. Una solución sería subir el timeout de `chat.py` o dejar una réplica mínima activa |
+| `get_cards` falló en Azure | «El servicio del banco no responde; intenta de nuevo en unos minutos» con `CUS-0001` | Mismo error que en las sesiones 6 y 8 con el MCP compartido, así que no viene del despliegue. No hubo reintento y el agente lo comunicó sin inventar datos. _(pendiente: repetir con `CUS-1001`, el cliente de las sesiones anteriores)_ |
+| La primera pregunta pidió el código de cliente | «¿cuáles son mis límites?» sin `CUS-xxxx` | No es un fallo: el agente pidió el dato que le faltaba |
+| Consulta con el nombre genérico de la app | `AuthorizationFailed` al usar `ca-agent-chat-NN` | El nombre de la guía es una plantilla. Con la app real `ca-agent-chat-07` sí se obtuvo el host |
+| `export` en PowerShell | PowerShell no lo reconoce | Se definieron `$env:AGENT_URL` y `$env:AGENT_SCOPE` |
+| Error transitorio al consultar Azure | Error de conexión en una consulta de solo lectura | Al reintentar se obtuvieron el tag, el estado de la revisión y los nombres de las variables |
+| Persistencia tras el reinicio | — | No fue un problema: `uvicorn` arrancó con `Cosmos DB workshop/team-07`, `idx-team-07` (29 chunks) y el MCP, y la acción pendiente sobrevivió al reinicio |
+
+### Conclusión
+
+- **El agente está desplegado y responde.** `/health` devuelve `ok`, el contenedor arranca con Search, Cosmos y las 3 tools del MCP, y las conversaciones simples (`greeting`, `data_query`) funcionan contra Azure con 1.368–3.573 tokens de entrada. La revisión `ca-agent-chat-07--0000002` está `Healthy`.
+- **Cosmos DB hace persistente la aprobación.** Una acción sensible `pending_approval` sobrevivió al reinicio de `uvicorn` y, al aprobarla, quedó `registered` (`CLI-9001`).
+- **El contenedor pasa las pruebas:** 139 aprobadas y 5 omitidas.
+- **Las fuentes y la acción aprobada:** con AI Search (`idx-team-07`) las respuestas llevaron `Fuentes:` (37,5 s y 18,3 s) y la acción aprobada quedó `registered`. La consulta con tool a través de la URL desplegada terminó en el error transitorio del MCP compartido.
+- **La latencia es el punto débil.** El primer `/health` agota los 30 s (la app escala a cero y arranca en frío), y las consultas con RAG o tools tardan 18–38 s, en línea con las sesiones 6 a 8.
