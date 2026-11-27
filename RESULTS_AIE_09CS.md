@@ -238,3 +238,46 @@ No. Las consultas de lectura (get_cards, get_credit_line) corrieron solas, pero 
 ### Conclusión
 
 Aprendí cómo funciona el freno human-in-the-loop en acciones críticas: el agente nunca registra cambios por su cuenta sin doble validación (cliente + asesor). Además, vi que si una herramienta falla o el pedido está fuera de dominio, el agente maneja el error sin romperse ni inventar acciones.
+
+## Sesión 9 — Despliegue en Azure
+
+Equipo: `team-09`. Dominio: `cards`.
+
+| Comprobación | Resultado |
+|---|---|
+| Tests en el contenedor (paso 3) | 139 passed, 5 skipped in 18.48s |
+| Acción aprobada después de reiniciar `uvicorn` (paso 2, Cosmos DB) |  Solicitud quedó `pending_approval`, al reiniciar `uvicorn` se aprobó la solicitud con estado `status: registered`. El detalle también se evidencia en la trayectoria y logs |
+| Imagen desplegada (`team-07/agent:<sha>`) |  `team-07/agent:ea2cd64af0170a1be696c750df13ee371cb83511`. Container App `ca-agent-chat-07` (grupo `rg-team-07`), contenedor `agent-chat` |
+| Revisión activa y duración del job `deploy` | `ca-agent-chat-07--0000002`, estado `Healthy`; al consultar estaba `ScaledToZero`. No se registró la duración del job. |
+| `/health` del agente desplegado | Agente en https://ca-agent-chat-07.icybush-2ea2dfc1.eastus2.azurecontainerapps.io: 'ok' al iniciar el chat `uv run python dev/chat.py`. |
+| Respuesta con `Fuentes:` contra Azure (y su tiempo en ms) | Probé el agente en Azure (ok, 21070 ms primer texto / 21249 ms total) y vi cómo validó la tarjeta CRD-2001 de CUS-1001, pausó el aumento a S/ 4,000 hasta mi aprobación y registró la solicitud CLI-9002. Fuentes: Endpoint Azure Container Apps (21070 ms / 21249 ms) y herramientas get_cards, get_credit_line y request_credit_line_increase (CLI-9002). |
+| Acción aprobada contra Azure, con su `resultado:` | Aprobé manualmente la acción sensible request_credit_line_increase(card_id=CRD-2001, requested_limit=4000) en el agente desplegado en Azure (ok, 21070 ms primer texto / 21249 ms total), obteniendo el siguiente resultado: {"id": "CLI-9002", "card_id": "CRD-2001", "requested_limit": 4000.0, "status": "registered"} que confirma el registro de la solicitud para ser procesada por el banco. |
+
+### Qué pone Azure y qué pone la imagen
+
+Container App: 
+APPLICATIONINSIGHTS_CONNECTION_STRING
+AZURE_CLIENT_ID
+AZURE_OPENAI_ENDPOINT
+COSMOS_CONTAINER
+COSMOS_DATABASE
+COSMOS_ENDPOINT
+FOUNDRY_PROJECT_ENDPOINT
+KEY_VAULT_URI
+MCP_SCOPE
+MCP_URL
+SEARCH_ENDPOINT
+SEARCH_INDEX
+TEAM_ID. 
+
+APPLICATIONINSIGHTS_CONNECTION_STRING, usa una referencia segura a un secret; las demás variables consultadas no tienen `secretRef`. No se leyeron ni copiaron valores.
+
+De acuerdo a `devops/DESPLIEGUE.md`, la imagen contiene: `DOMAIN`, `FOUNDRY_AUTH_PROVIDER`, `KNOWLEDGE_BASE` y `AGENT_RUNTIME`.
+
+### Problemas que encontraste y cómo los resolviste
+
+En el transcurso de las pruebas me topé con varios inconvenientes prácticos que logré solucionar sobre la marcha: primero, obtuve un error AuthorizationFailed por usar el nombre genérico ca-agent-chat-NN en vez de mi app real ca-agent-chat-07; por otro lado, enfrenté timeouts de 30 segundos en el primer /health por el arranque en frío del contenedor (que demora ~30 s en conectar Search, Cosmos DB y MCP) junto con un corte momentáneo de red en Azure, lo cual superé reintentando las llamadas hasta recibir ok, verificando además que la persistencia en Cosmos DB sobrevivió al reinicio de uvicorn y que, ante el fallo del MCP compartido con CUS-0001, el agente respondió con cautela sin inventar información.
+
+### Conclusión
+
+Con estas pruebas aprendí que el agente ya funciona de punta a punta en Azure (Healthy en /health, con 139 pruebas locales superadas y secretos protegidos en Application Insights), logrando integrar Cosmos DB para que las aprobaciones sensibles sobrevivan incluso a un reinicio del servidor (CLI-9001 como registered) y AI Search (idx-team-07) para respaldar sus respuestas con Fuentes:; además, identifiqué que nuestro principal reto técnico ahora es optimizar la latencia, ya que el escalado a cero provoca arranques en frío de hasta 30 segundos y las consultas complejas con RAG o herramientas toman entre 18 y 38 segundos.
