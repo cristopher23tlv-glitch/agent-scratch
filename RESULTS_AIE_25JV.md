@@ -147,3 +147,185 @@ PASO 12: Conclusiones.
 
 - **A cumple todos los controles.** `hechos` pasa por poco (0.76 frente a la meta de 0.75): 5 de los 7 fallos son de formato (`54.99%` en vez de `54.99 %`).
 - **B incumple `hechos` (0.44).** Los fallos vienen sobre todo del golden: valores que no coinciden con el corpus (S/ 1 500 y 37.80 %), un formato de `S/3` y 2 respuestas de «no hay información». Ver el detalle en la sección de arriba.
+
+## Sesión 6 — Tools del MCP en el chat
+
+Dominio: `cards`. MCP: el mock (`http://127.0.0.1:8200/mcp`) y, si ya tienes `MCP_URL`, el compartido (`bank-mcp`).
+
+### Tools de tu dominio
+
+| MCP | Tools que lista `dev/mcp/mcp_tools.py` |
+|---|---|
+| Mock | `http://127.0.0.1:8200/mcp` · cards · 3 tools<br>`get_cards` (consulta): `customer_id`<br>`get_credit_line` (consulta): `card_id`<br>`request_credit_line_increase` (acción sensible): `card_id`, `requested_limit` |
+| Compartido | `https://ca-mcp-server.icybush-2ea2dfc1.eastus2.azurecontainerapps.io/mcp` · cards · 3 tools<br>`get_cards` (consulta): `customer_id`<br>`get_credit_line` (consulta): `card_id`<br>`request_credit_line_increase` (acción sensible): `card_id`, `requested_limit` |
+
+
+### Conversación en `dev/chat.py` (paso 12)
+
+| Prueba | Mensaje | Tool pedida (`→`) | Qué pasó | Primer texto / respuesta completa (ms) |
+|---|---|---|---|---|
+| Consulta de tu dominio | Soy CUS-1001, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000? | `get_credit_line(card_id=CRD-2001)` y luego `request_credit_line_increase(card_id=CRD-2001, requested_limit=4000)` | `get_credit_line` falló: «El servicio del banco no responde». El agente siguió con la acción sensible, que **no se ejecutó**: quedó `pendiente_aprobacion`. Respondió (`sensitive_action`) que registró la solicitud de S/ 4,000 y citó `credit-line-increase.md`. | 43.590 / 45.019 |
+| Acción confirmada | Sí, solicítalo, el motivo es mayor gasto familiar | `request_credit_line_increase(card_id=CRD-2001, requested_limit=4000)` | La tool volvió a responder `pendiente_aprobacion`: no se ejecuta hasta que lo apruebe un asesor. El agente informó que el aumento a S/ 4,000 quedó pendiente (respuesta en 2 días hábiles, línea disponible en 24 horas) y recordó los requisitos. | 29.716 / 30.251 |
+| Sin tool que la resuelva | ¿Cuál es el saldo de mi cuenta de ahorros? | Ninguna | Intención `out_of_scope`. No inventó ningún saldo: dijo que no puede consultarlo y derivó a la banca móvil o por Internet, a atención al cliente o a una sucursal. | 11.980 / 12.145 |
+| Tool de otro dominio (`fees`) | Soy CUS-1001, ¿por qué me cobraron comisiones este mes? ¿Alguna se puede devolver? | Ninguna: el MCP solo muestra las tools del dominio `cards`, así que las de `fees` no estaban disponibles | Intención `product_question`: respondió solo con RAG (`cardholder-cases.pdf`, `classic-card-sheet.pdf`, `card-insurance.docx`). Dio ejemplos de cargos de los documentos y aclaró que no tenía la política de devolución, por lo que no pudo confirmar si alguna comisión se devuelve. Tiempos: 16.447 / 16.832 ms. | — |
+
+
+### ¿El modelo inventó algún dato cuando ninguna tool lo resolvía?
+
+No. En las dos pruebas sin tool disponible no hubo datos inventados:
+
+- **Saldo de ahorros:** no dio ninguna cifra. Declaró que no puede consultarlo y mandó al cliente a la banca móvil, a atención al cliente o a una sucursal.
+- **Comisiones (tool de `fees`):** no inventó los cargos del cliente `CUS-1001`. Usó solo ejemplos de los documentos (membresía Clásica S/ 120, membresía Oro S/ 240, seguro de desgravamen 0.12 % mensual), que coinciden con el corpus. Dijo de forma explícita que los fragmentos no incluyen la política de devolución.
+
+
+### Conclusión
+
+- **Las acciones sensibles no se ejecutan solas.** En las dos pruebas con `request_credit_line_increase` la tool respondió `pendiente_aprobacion`, y el agente lo comunicó al cliente con los plazos y requisitos del corpus.
+- **Sin tool, el agente no inventa.** Con saldo de ahorros respondió `out_of_scope`, y con comisiones (otro dominio) contestó solo con RAG y reconoció lo que no sabía.
+- **La latencia es el punto débil.** Con tools tardó 30–45 s hasta la respuesta completa, y sin tools 12–17 s. Además, `get_credit_line` falló con «El servicio del banco no responde» en la primera prueba y habría que repetirla.
+
+## Sesión 7 — Skills, memoria de trabajo y Agent Framework
+
+Dominio: `cards`. La misma conversación de 4 turnos con los dos runtimes (paso 7), cambiando solo `AGENT_RUNTIME` en el `.env`. Modelo con razonamiento (`gpt-5-mini`). Una sola corrida por runtime.
+
+Turnos: (1) «Soy CUS-1001, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000?» · (2) «Sí, solicítalo, el motivo es mayor gasto familiar» · (3) «¿Cuál es el saldo de mi cuenta de ahorros?» · (4) «¿Cuál era la línea máxima de mi tarjeta?»
+
+| | `react` | `agent_framework` |
+|---|---|---|
+| Tools pedidas en la consulta (turno 1) | `get_cards(customer_id=CUS-1001)` y `get_credit_line(card_id=CRD-2001)` | Las mismas dos, en el mismo orden |
+| Tool pedida en la acción confirmada (turno 2) | Solo `request_credit_line_increase(card_id=CRD-2001, requested_limit=4000)`, sin repetir `get_cards` ni `get_credit_line` | Igual |
+| La acción sensible quedó **NO SE EJECUTA** | Sí: `pendiente_aprobacion`; el agente lo comunicó como solicitud pendiente de un asesor | Sí: igual |
+| Pregunta de memoria respondida sin `→` | Sí (turno 4): «S/4,500», sin ninguna tool | Sí (turno 4): «S/ 4,500.00», sin ninguna tool |
+| Primer texto (ms), turnos 1 / 2 / 3 / 4 | 23.501 / 18.811 / 9.302 / 10.996 (suma 62.610) | 21.336 / 26.021 / 9.496 / 13.308 (suma 70.161) |
+| Respuesta completa (ms), turnos 1 / 2 / 3 / 4 | 23.786 / 19.079 / 9.445 / 11.011 (suma 63.321) | 21.614 / 26.167 / 9.559 / 13.317 (suma 70.657) |
+| Tokens entrada (por turno / total) | 4.466 / 4.620 / 3.018 / 3.173 → **15.277** | 4.466 / 4.713 / 3.009 / 3.181 → **15.369** |
+| Tokens salida (por turno / total) | 2.154 / 2.189 / 864 / 1.165 → **6.372** | 1.881 / 3.145 / 897 / 1.414 → **7.337** |
+
+### ¿La skill frenó la tool de otro dominio?
+
+Mensaje: «¿Cuál es el saldo de mi cuenta de ahorros?» (fuera del dominio `cards`; como mi dominio es `cards`, uso esta pregunta en lugar de la de `fees` de la guía).
+
+Respuesta: sí, la frenó. Con los dos runtimes la intención fue `out_of_scope` y no hubo ninguna llamada `→` a tools. El agente dijo que no puede consultar saldos de ahorros, no inventó ninguna cifra y derivó a banca móvil/web, cajero o servicio al cliente. Ni el MCP ni la skill dejan pasar la consulta.
+
+### Diferencias entre los dos runtimes
+
+- **Comportamiento: prácticamente idéntico.** Mismas tools, mismo orden, misma intención en cada turno (`sensitive_action`, `sensitive_action`, `out_of_scope`, `data_query`), mismas fuentes (`credit-line-increase.md`) y los mismos 4.466 tokens de entrada en el turno 1, lo que indica que el prompt es el mismo. El harness es nuestro: el cambio fue una línea del `.env`.
+- **Latencia: sin diferencia concluyente.** `react` fue ~10 % más rápido en total (63,3 s frente a 70,7 s), pero `agent_framework` ganó el turno 1 (21,6 s frente a 23,8 s) y perdió por 7 s el turno 2. Con una sola corrida es ruido del modelo, no del runtime. En ambos, el primer texto tarda 9–26 s y casi todo ese tiempo es razonamiento y tools.
+- **Streaming poco visible.** Entre el primer texto y la respuesta completa pasan solo 0,01–0,28 s. El texto sí llega en pedazos, pero casi al final, cuando el modelo ya terminó de razonar.
+- **Tokens de salida: `agent_framework` generó ~15 % más** (7.337 frente a 6.372), sobre todo en el turno 2 (3.145 frente a 2.189), probablemente por tokens de razonamiento. La entrada es casi igual (15.369 frente a 15.277).
+- **Estilo de la respuesta:** `react` trata de «usted»; `agent_framework`, de «tú». Es un efecto del modelo, no del runtime.
+- **Matices en la acción confirmada (turno 2).** La tool devolvió que la acción **no se registró todavía**. `react` dijo «He registrado la solicitud», lo que se pasa de lo que ocurrió. `agent_framework` dijo «He solicitado…» (más fiel), pero añadió «registré el motivo: mayor gasto familiar» (la tool solo recibe `card_id` y `requested_limit`, así que el motivo no se guarda en ninguna parte) y «Te avisaremos por los canales registrados» (no lo respalda la tool). Ambos citan los plazos y requisitos del corpus correctamente.
+
+### Conclusión
+
+- **Cambiar de runtime no cambia el resultado.** Con `react` o `agent_framework` el agente pide las mismas tools, la acción sensible no se ejecuta (`pendiente_aprobacion`) y lo comunica con los plazos del corpus.
+- **La memoria de trabajo funciona.** En el turno 2 no hubo `get_cards` ni `get_credit_line` previos: `CRD-2001` y `4000` salieron del turno anterior. En el turno 4 la línea máxima (S/ 4.500) se respondió sin ninguna tool, con lo que ya se había consultado.
+- **La latencia sigue siendo el punto débil:** 9–26 s hasta el primer texto con cualquier runtime, por el modelo que razona. Elegir runtime no la arregla.
+
+
+
+## Sesión 8 — Aprobación humana, validación y reintentos
+
+Dominio: `cards` (MCP compartido `bank-mcp`, 3 tools: `get_cards`, `get_credit_line`, `request_credit_line_increase`).
+
+| Caso | Runtime | Mensaje | Qué pasó | Resultado o ID |
+|---|---|---|---|---|
+| Aprobar | `agent_framework` | «Soy CUS-1001, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000?» → «Sí, solicítalo, el motivo es mayor gasto familiar» → asesor `s` | Turno 1: `get_cards` falló («El servicio del banco no responde») y `get_credit_line` respondió (línea S/ 3,000, máximo elegible S/ 4,500). El agente pidió confirmación. Turno 2: `request_credit_line_increase` volvió `pendiente_aprobacion` (no se ejecutó). El asesor aprobó y recién entonces se ejecutó. | Ejecutada: `CLI-9001`, `status: registered`, S/ 4,000 |
+| Rechazar | `react` | Los mismos dos mensajes → asesor `n` | Igual hasta `pendiente_aprobacion`. El asesor rechazó: la tool nunca se ejecutó y el agente informó que la solicitud fue rechazada. | `rechazada` («El asesor rechazó la acción: no se ejecutó.»), sin ID |
+| Error de negocio (`CUS-9999`) | `react` | «Soy CUS-9999, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000?» | `get_cards(customer_id=CUS-9999)` devolvió error de negocio. El agente no siguió con `get_credit_line` ni con la acción, dijo que no encuentra al cliente y pidió el código correcto. | `error: {"error": "El cliente CUS-9999 no existe"}`; sin ID |
+| Input inválido | `react`| «Mi número de cliente es 1001, ¿qué tarjetas tengo?» | No llamó ninguna tool; pidió el formato CUS-xxxx y aclaró que no puede consultar comisiones. No se observó un error de validación de la API. | Sin ejecución |
+
+Tiempos y tokens (una sola corrida):
+
+| Runtime | Turno | Primer texto / completa (ms) | Tokens E / S |
+|---|---|---|---|
+| `agent_framework` | 1 | 104.798 / 105.034 | 4.424 / 2.814 |
+| `agent_framework` | 2 | 18.534 / 18.562 | 4.320 / 1.819 |
+| `agent_framework` | decisión (`/chat/actions`) | — | 1.446 / 836 (7,1 s de LLM) |
+| `react` | 1 | 43.265 / 43.549 | 4.424 / 2.135 |
+| `react` | 2 | 22.548 / 22.709 | 4.064 / 2.688 |
+| `react` | decisión (`/chat/actions`) | — | 1.410 / 633 (5,5 s de LLM) |
+| `react` | `CUS-9999` | 12.378 / 12.653 | 5.273 / 1.151 |
+
+### La trayectoria en el log
+
+`agent_framework` (trayectoria `4d5e01f7-2a19-4cda-b8d6-dfc3d93c9715`):
+
+```
+get_cards error → get_credit_line ok → respuesta sensitive_action
+request_credit_line_increase pending_approval → respuesta sensitive_action
+decisión del asesor → request_credit_line_increase ok
+```
+
+`react` (trayectoria `a72695ff-7c93-4406-afad-0de422ee902c`):
+
+```
+get_cards error → get_credit_line ok → respuesta sensitive_action
+request_credit_line_increase pending_approval → respuesta sensitive_action
+decisión del asesor → request_credit_line_increase rejected
+get_cards error → respuesta sensitive_action        (CUS-9999)
+```
+
+### ¿Algo se ejecutó sin que lo aprobaras?
+
+No. En los dos runtimes, `request_credit_line_increase` salió siempre como `pending_approval` y solo se ejecutó contra el MCP después del `s` del asesor (en `agent_framework`, tres llamadas al MCP justo antes de `decisión del asesor → … ok`). Con `n` no hubo ninguna llamada al MCP: la decisión quedó como `rejected`. Con `CUS-9999` el flujo se detuvo en `get_cards` y no llegó a la acción.
+
+### Conclusión
+
+- **La aprobación humana funciona igual en los dos runtimes.** La acción sensible se pausa, el asesor decide y el resultado final (`CLI-9001` o `rechazada`) coincide con lo decidido.
+- **El error de negocio se maneja bien:** el agente se detuvo, no inventó datos de `CUS-9999` y pidió el código correcto. Un detalle: pidió también «los últimos 4 dígitos» aunque el cliente ya había dado `CRD-2001`.
+- **El texto del turno 2 se adelanta a la decisión.** Antes de la aprobación, `react` dijo «Solicitud registrada» y `agent_framework` «He solicitado…», «Te aviso cuando haya novedades» y «motivo: mayor gasto familiar» (la tool solo recibe `card_id` y `requested_limit`). Lo correcto era decir «pendiente de aprobación». Con la aprobación, `agent_framework` sí fue fiel («registrada, ID CLI-9001, no se ha aplicado»).
+- **Reintentos:** `get_cards` falló con «El servicio del banco no responde» en los dos runtimes y no hubo ningún reintento: el agente siguió con `get_credit_line`. En `agent_framework`, `get_cards` tardó 69 s (el primer texto salió a los 105 s); en `react` el turno entero tardó 43 s.
+
+
+## Sesión 9 — Despliegue en Azure
+
+Equipo: `team-07`. Dominio: `cards`.
+
+| Comprobación | Resultado |
+|---|---|
+| Tests en el contenedor (paso 3) | `docker run --rm agent:test`: 139 passed, 5 skipped (13,08 s). También `uv run pytest`: 140 passed, 4 skipped. |
+| Acción aprobada después de reiniciar `uvicorn` (paso 2, Cosmos DB) | **Comprobado.** La solicitud quedó `pending_approval`; se detuvo y reinició `uvicorn`; luego se aprobó y devolvió `status: registered` (`CLI-9001`). La misma trayectoria aparece en los logs antes y después del reinicio. |
+| Imagen desplegada (`team-07/agent:<sha>`) | `team-07/agent:ea2cd64af0170a1be696c750df13ee371cb83511`. Container App `ca-agent-chat-07` (grupo `rg-team-07`), contenedor `agent-chat` |
+| Revisión activa y duración del job `deploy` | Revisión `ca-agent-chat-07--0000002` (réplica `ca-agent-chat-07--0000002-667945bdfb-dkvh9`), estado `Healthy`; al consultarla estaba `ScaledToZero`. La duración del job `deploy` no se registró |
+| `/health` del agente desplegado | `ok`. En el log: `GET /health HTTP/1.1 200 OK`. Los dos primeros intentos de `dev/chat.py` fallaron con `TimeoutError` a los 30 s; el tercero respondió `ok` |
+| Respuesta con `Fuentes:` contra Azure (y su tiempo en ms) | En la prueba local con AI Search (`idx-team-07`) respondió con fuentes en 37.527 ms y 18.321 ms. No se registró una consulta RAG a través de la URL desplegada: las respuestas de esa URL (`hola`, `greeting`, 3.041 / 3.128 ms; «¿cuáles son mis límites?», `data_query`, 7.427 / 7.626 ms) no llevan fuentes |
+| Acción aprobada contra Azure, con su `resultado:` | `registered` después de aprobar la solicitud. En la conversación con la URL desplegada, `get_cards` con `CUS-0001` devolvió «El servicio del banco no responde; intenta de nuevo en unos minutos» (19.670 / 19.874 ms, 3.573 tokens de entrada, 725 de salida) |
+
+URL del agente: `https://ca-agent-chat-07.icybush-2ea2dfc1.eastus2.azurecontainerapps.io`. La autenticación está activa (Entra ID, `AGENT_SCOPE=api://<appId>/.default`).
+
+Arranque observado en el log: `Foundry auth provider: entra_id`, base de conocimiento `azure_search` (índice `idx-team-07`, 29 chunks), almacén de conversaciones Cosmos DB `workshop/team-07`, MCP compartido con 3 tools (`get_cards`, `get_credit_line`, `request_credit_line_increase`) y runtime `agent_framework`.
+
+### Qué pone Azure y qué pone la imagen
+
+**Azure** (variables de entorno del Container App, solo nombres):
+
+- Identidad y observabilidad: `AZURE_CLIENT_ID`, `APPLICATIONINSIGHTS_CONNECTION_STRING`, `TEAM_ID`.
+- Modelo: `FOUNDRY_PROJECT_ENDPOINT`, `AZURE_OPENAI_ENDPOINT`.
+- Búsqueda (RAG): `SEARCH_ENDPOINT`, `SEARCH_INDEX`.
+- Conversaciones: `COSMOS_ENDPOINT`, `COSMOS_DATABASE`, `COSMOS_CONTAINER`.
+- Tools: `MCP_URL`, `MCP_SCOPE`.
+- Secretos: `KEY_VAULT_URI`.
+
+No aparece ninguna clave en la lista: el acceso a Foundry, Search y Cosmos va con Entra ID (`AZURE_CLIENT_ID`) y lo que sea secreto se lee de Key Vault. Solo `APPLICATIONINSIGHTS_CONNECTION_STRING` usa una referencia segura a un secret (`secretRef`); las demás variables no tienen `secretRef`. No se leyeron ni copiaron valores.
+
+
+### Problemas que encontraste y cómo los resolviste
+
+| Problema | Qué se vio | Causa probable / resolución |
+|---|---|---|
+| `/health` agotó el tiempo dos veces | `TimeoutError: The read operation timed out` a los 30 s en `check_health()` | Arranque en frío. El log muestra el arranque entre 15:54:46 y 15:55:14 (~28 s: Search, Cosmos y la conexión al MCP). El tercer intento respondió `ok`. No lo resolví: reintenté. Una solución sería subir el timeout de `chat.py` o dejar una réplica mínima activa |
+| `get_cards` falló en Azure | «El servicio del banco no responde; intenta de nuevo en unos minutos» con `CUS-0001` | Mismo error que en las sesiones 6 y 8 con el MCP compartido, así que no viene del despliegue. No hubo reintento y el agente lo comunicó sin inventar datos. _(pendiente: repetir con `CUS-1001`, el cliente de las sesiones anteriores)_ |
+| La primera pregunta pidió el código de cliente | «¿cuáles son mis límites?» sin `CUS-xxxx` | No es un fallo: el agente pidió el dato que le faltaba |
+| Consulta con el nombre genérico de la app | `AuthorizationFailed` al usar `ca-agent-chat-NN` | El nombre de la guía es una plantilla. Con la app real `ca-agent-chat-07` sí se obtuvo el host |
+| `export` en PowerShell | PowerShell no lo reconoce | Se definieron `$env:AGENT_URL` y `$env:AGENT_SCOPE` |
+| Error transitorio al consultar Azure | Error de conexión en una consulta de solo lectura | Al reintentar se obtuvieron el tag, el estado de la revisión y los nombres de las variables |
+| Persistencia tras el reinicio | — | No fue un problema: `uvicorn` arrancó con `Cosmos DB workshop/team-07`, `idx-team-07` (29 chunks) y el MCP, y la acción pendiente sobrevivió al reinicio |
+
+### Conclusión
+
+- **El agente está desplegado y responde.** `/health` devuelve `ok`, el contenedor arranca con Search, Cosmos y las 3 tools del MCP, y las conversaciones simples (`greeting`, `data_query`) funcionan contra Azure con 1.368–3.573 tokens de entrada. La revisión `ca-agent-chat-07--0000002` está `Healthy`.
+- **Cosmos DB hace persistente la aprobación.** Una acción sensible `pending_approval` sobrevivió al reinicio de `uvicorn` y, al aprobarla, quedó `registered` (`CLI-9001`).
+- **El contenedor pasa las pruebas:** 139 aprobadas y 5 omitidas.
+- **Las fuentes y la acción aprobada:** con AI Search (`idx-team-07`) las respuestas llevaron `Fuentes:` (37,5 s y 18,3 s) y la acción aprobada quedó `registered`. La consulta con tool a través de la URL desplegada terminó en el error transitorio del MCP compartido.
+- **La latencia es el punto débil.** El primer `/health` agota los 30 s (la app escala a cero y arranca en frío), y las consultas con RAG o tools tardan 18–38 s, en línea con las sesiones 6 a 8.
